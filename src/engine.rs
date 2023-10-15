@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::RwLockReadGuard};
 
-use crate::node::{NodeInstance, Sink, Buffer, Node, TimelineUnit, BEAT_DIVISIONS};
+use crate::node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef};
 
 
 pub struct Config {
@@ -40,10 +40,12 @@ impl Engine {
 
 	pub fn render(&mut self, buffer: &mut [Frame]) {
 		let sink = &self.nodes[&0];
-		sink.render(0, Buffer::Audio(buffer), self);
+
+		sink.node.render(0, BufferAccess::Audio(buffer), sink, self);
 		
 		for node in self.nodes.values_mut() {
 			node.node.advance(buffer.len(), &self.config);
+			node.clear_buffers();
 		}
 	}
 
@@ -63,6 +65,14 @@ impl Engine {
 
 	pub fn get_node_mut(&mut self, node: usize) -> Option<&mut NodeInstance> {
 		self.nodes.get_mut(&node)
+	}
+
+	pub fn poll_node_output(&self, output_ref: &OutputRef, buffer_len: usize) -> RwLockReadGuard<'_, Buffer> {
+		let input_node = self.get_node(output_ref.node).unwrap();
+		
+		input_node.render(output_ref.output, buffer_len, self);
+
+		input_node.outputs[output_ref.output].read().unwrap()
 	}
 }
 

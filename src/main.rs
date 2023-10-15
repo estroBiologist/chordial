@@ -6,7 +6,7 @@ use node::{OutputRef, Sine};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate};
 use wav::{Header, WAV_FORMAT_IEEE_FLOAT, BitDepth};
 
-use crate::node::{Gain, Trigger, TimelineUnit, TimelineNode};
+use crate::node::{Gain, Trigger, TimelineUnit};
 
 pub mod engine;
 pub mod midi;
@@ -41,6 +41,13 @@ fn main() {
 
 	//let trigger = engine.get_node(3).unwrap();
 	
+	let sine = engine.get_node_mut(1).unwrap();
+
+	sine.inputs[0] = Some(OutputRef {
+		node: 3,
+		output: 0,
+	});
+
 	let gain = engine.get_node_mut(2).unwrap();
 
 	gain.inputs[0] = Some(OutputRef {
@@ -54,7 +61,7 @@ fn main() {
 		node: 2,
 		output: 0,
 	});
-	
+
 	let mut buffer = vec![];
 	
 	let stream = device.build_output_stream(
@@ -82,6 +89,13 @@ fn main() {
 
 		None
 	).unwrap();
+
+	println!(
+		"stream opened with config:\n  channels: {}\n  sample rate: {}\n  buffer size: {:?}",
+		config.channels,
+		config.sample_rate.0,
+		config.buffer_size
+	);
 
 	stream.play().unwrap();
 	std::thread::sleep(Duration::from_secs(5));
