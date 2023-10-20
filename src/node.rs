@@ -1,8 +1,8 @@
-use std::{fmt::Debug, any::Any, sync::{RwLock, atomic::{Ordering, AtomicUsize}}};
+use std::{fmt::{Debug, Display}, any::Any, sync::{RwLock, atomic::{Ordering, AtomicUsize}}};
 
-use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::MidiMessageChain};
+use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope};
 
-pub trait Node: Any {
+pub trait Node: Display + Send + Any {
 	fn get_input_count(&self) -> usize;
 	fn get_output_count(&self) -> usize;
 	fn get_input_kind(&self, input: usize) -> BusKind;
@@ -34,6 +34,12 @@ pub const BEAT_DIVISIONS: u32 = 24;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TimelineUnit(pub usize);
 
+impl Display for TimelineUnit {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0)
+	}
+}
+
 pub trait TimelineNode: Node {
 	fn get_length(&self) -> TimelineUnit;
 	fn set_position(&mut self, pos: TimelineUnit) -> TimelineUnit;
@@ -44,7 +50,8 @@ pub trait TimelineNode: Node {
 pub struct NodeInstance {
 	pub inputs: Vec<Option<OutputRef>>,
 	pub outputs: Vec<RwLock<Buffer>>,
-	pub node: Box<dyn Node + Send>,
+	pub node: Box<dyn Node>,
+	pub id: &'static str,
 }
 
 impl NodeInstance {
@@ -70,11 +77,11 @@ impl NodeInstance {
 		}
 	}
 
-	pub fn new(node: impl Node + Send + 'static) -> Self {
-		Self::new_dyn(Box::new(node))
+	pub fn new(node: impl Node + 'static, id: &'static str) -> Self {
+		Self::new_dyn(Box::new(node), id)
 	}
 
-	pub fn new_dyn(node: Box<dyn Node + Send>) -> Self {
+	pub fn new_dyn(node: Box<dyn Node>, id: &'static str) -> Self {
 		let mut outputs = Vec::with_capacity(node.get_output_count());
 
 		for output in 0..node.get_output_count() {
@@ -86,7 +93,8 @@ impl NodeInstance {
 		NodeInstance {
 			inputs: vec![None; node.get_input_count()],
 			outputs,
-			node
+			node,
+			id
 		}
 	}
 }
@@ -151,7 +159,7 @@ pub enum BufferAccess<'buf> {
 	Control(&'buf mut [f32]),
 }
 
-pub trait Effect {
+pub trait Effect: Display + Send {
 	fn render_effect(&self, buffer: BufferAccess);
 	fn advance_effect(&mut self, frames: usize, config: &Config);
 }
@@ -240,6 +248,12 @@ impl Node for Sink {
 	fn seek(&mut self, _: usize, _: &Config) { }
 }
 
+impl Display for Sink {
+	fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		Ok(())
+	}
+}
+
 impl Node for Source {
 	fn get_input_count(&self) -> usize {
 		0
@@ -267,6 +281,12 @@ impl Node for Source {
 		};
 
 		buffer.fill(Frame([1.0f32, 0.0f32]));
+	}
+}
+
+impl Display for Source {
+	fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		Ok(())
 	}
 }
 
@@ -348,6 +368,12 @@ impl Node for Sine {
 	}
 }
 
+impl Display for Sine {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.rate)
+	}
+}
+
 pub struct Gain {
 	pub gain: f32,
 }
@@ -369,6 +395,12 @@ impl Effect for Gain {
 	}
 
 	fn advance_effect(&mut self, _: usize, _: &Config) { }
+}
+
+impl Display for Gain {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.gain)
+	}
 }
 
 pub struct Trigger {
@@ -448,5 +480,67 @@ impl TimelineNode for Trigger {
 
 	fn set_end_offset(&mut self, offset: TimelineUnit) {
 		todo!()
+	}
+}
+
+impl Display for Trigger {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.node_pos)
+	}
+}
+
+struct Osc {
+	pos: usize,
+	notes: RwLock<Vec<MidiNoteDesc>>,
+	envelope: Envelope,
+}
+
+impl Node for Osc {
+    fn get_input_count(&self) -> usize {
+        1
+    }
+
+    fn get_output_count(&self) -> usize {
+        1
+    }
+
+    fn get_input_kind(&self, input: usize) -> BusKind {
+        BusKind::Midi
+    }
+
+    fn get_output_kind(&self, output: usize) -> BusKind {
+		BusKind::Audio
+    }
+
+    fn render(
+		    &self,
+		    output: usize,
+		    buffer: BufferAccess,
+		    instance: &NodeInstance,
+		    engine: &Engine
+	    ) {
+        todo!()
+    }
+
+    fn advance(
+		    &mut self,
+		    frames: usize,
+		    config: &Config
+	    ) {
+        todo!()
+    }
+
+    fn seek(
+		    &mut self,
+		    position: usize,
+		    config: &Config,
+	    ) {
+        todo!()
+    }
+}
+
+impl Display for Osc {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		Ok(())
 	}
 }

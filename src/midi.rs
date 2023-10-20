@@ -50,3 +50,10 @@ impl MidiStatusByte {
 		Self(code as u8 | (channel & 0xF))
 	}
 }
+
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct MidiNoteDesc {
+	pub note: u8,
+	pub vel: u8
+}

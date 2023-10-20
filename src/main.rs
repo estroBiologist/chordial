@@ -1,16 +1,18 @@
-use std::{fs::File, path::Path, sync::{RwLock, Arc}, time::Duration};
+use std::{fs::File, path::{Path, PathBuf}, sync::{RwLock, Arc, Mutex}, time::Duration, io::Write};
 
 use engine::{Engine, Frame};
-use node::{OutputRef, Sine};
 
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate};
 use wav::{Header, WAV_FORMAT_IEEE_FLOAT, BitDepth};
 
-use crate::node::{Gain, Trigger, TimelineUnit};
+use crate::node::{Gain, Sine, Trigger, TimelineUnit};
 
+pub mod adsr;
 pub mod engine;
+pub mod format;
 pub mod midi;
 pub mod node;
+pub mod param;
 mod util;
 
 fn main() {
@@ -31,36 +33,14 @@ fn main() {
 	};
 
 	let mut engine = Engine::new();
+	register_builtin_nodes(&mut engine);
+	engine.load_from_file(&PathBuf::from("state.chrp"));
 
-	engine.add_node(Sine::new(440.0));
-	engine.add_node(Gain { gain: -10.0 });
-	engine.add_node(Trigger { 
-		node_pos: TimelineUnit(24*4),
-		tl_pos: 0,
-	});
+	let mut state_file = File::create("state.chrp").unwrap();
+	write!(state_file, "{engine}").unwrap();
 
-	//let trigger = engine.get_node(3).unwrap();
-	
-	let sine = engine.get_node_mut(1).unwrap();
-
-	sine.inputs[0] = Some(OutputRef {
-		node: 3,
-		output: 0,
-	});
-
-	let gain = engine.get_node_mut(2).unwrap();
-
-	gain.inputs[0] = Some(OutputRef {
-		node: 1,
-		output: 0,
-	});
-
-	let sink = engine.get_node_mut(0).unwrap();
-	
-	sink.inputs[0] = Some(OutputRef {
-		node: 2,
-		output: 0,
-	});
+	let engine = Arc::new(Mutex::new(engine));
+	let thread_engine = engine.clone();
 
 	let mut buffer = vec![];
 	
@@ -69,7 +49,7 @@ fn main() {
 
 		move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 			buffer.resize(data.len() / 2, Frame([0f32; 2]));
-			engine.render(&mut buffer);
+			thread_engine.lock().unwrap().render(&mut buffer);
 			
 			let mut out_buffer = out_buffer_thread.write().unwrap();
 
@@ -90,8 +70,11 @@ fn main() {
 		None
 	).unwrap();
 
-	println!(
-		"stream opened with config:\n  channels: {}\n  sample rate: {}\n  buffer size: {:?}",
+	println!("
+stream opened with config:
+  channels: {}
+  sample rate: {}
+  buffer size: {:?}",
 		config.channels,
 		config.sample_rate.0,
 		config.buffer_size
@@ -111,4 +94,30 @@ fn main() {
 		&BitDepth::ThirtyTwoFloat(out_buffer.write().unwrap().drain(..).collect()), 
 		&mut out
 	).unwrap();
+}
+
+fn register_builtin_nodes(engine: &mut Engine) {
+	engine.register("chordial.sine", |args| {
+		let [arg] = args else {
+			panic!()
+		};
+		Box::new(Sine::new(arg.parse().unwrap()))
+	});
+
+	engine.register("chordial.gain", |args| {
+		let [arg] = args else {
+			panic!()
+		};
+		Box::new(Gain { gain: arg.parse().unwrap() })
+	});
+	
+	engine.register("chordial.trigger", |args| {
+		let [arg] = args else {
+			panic!()
+		};
+		Box::new(Trigger { 
+			node_pos: TimelineUnit(arg.parse().unwrap()),
+			tl_pos: 0
+		})
+	});
 }
