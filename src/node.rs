@@ -1,12 +1,18 @@
 use std::{fmt::{Debug, Display}, any::Any, sync::{RwLock, atomic::{Ordering, AtomicUsize}}};
 
-use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope};
+use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope, param::{Parameter, ParamValue, ParamKind}};
 
 pub trait Node: Display + Send + Any {
-	fn get_input_count(&self) -> usize;
-	fn get_output_count(&self) -> usize;
-	fn get_input_kind(&self, input: usize) -> BusKind;
-	fn get_output_kind(&self, output: usize) -> BusKind;
+	fn get_inputs(&self) -> &[BusKind] { &[] }
+	fn get_outputs(&self) -> &[BusKind] { &[] }
+	
+	#[allow(unused_variables)]
+	fn param_updated(&mut self, param: usize, value: &ParamValue) { }
+
+	#[allow(unused_variables)]
+	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> { None }
+
+	fn get_params(&self) -> &[Parameter] { &[] }
 
 	fn render(
 		&self,
@@ -52,9 +58,44 @@ pub struct NodeInstance {
 	pub outputs: Vec<RwLock<Buffer>>,
 	pub node: Box<dyn Node>,
 	pub id: &'static str,
+	params: Vec<(Parameter, ParamValue)>,
 }
 
 impl NodeInstance {
+	pub fn new(node: impl Node + 'static, id: &'static str) -> Self {
+		Self::new_dyn(Box::new(node), id)
+	}
+
+	pub fn new_dyn(node: Box<dyn Node>, id: &'static str) -> Self {
+		NodeInstance {
+			inputs: vec![None; node.get_inputs().len()],
+			outputs: node
+						.get_outputs()
+						.iter()
+						.copied()
+						.map(Buffer::from_bus_kind)
+						.map(RwLock::new)
+						.collect(),
+			params: node
+						.get_params()
+						.iter()
+						.copied()
+						.map(|desc| (desc, ParamValue::from_desc(desc)))
+						.collect(),
+			node,
+			id,
+		}
+	}
+
+	pub fn get_params(&self) -> &[(Parameter, ParamValue)] {
+		&self.params
+	}
+
+	pub fn set_param(&mut self, param: usize, value: ParamValue) {
+		self.node.param_updated(param, &value);
+		self.params[param].1.set(value);
+	}
+
 	pub fn render(&self, output: usize, samples: usize, engine: &Engine) {
 		let buf = &mut *self.outputs[output].write().unwrap();
 
@@ -74,27 +115,6 @@ impl NodeInstance {
 				Buffer::Control(buf) => buf.clear(),
 				Buffer::Midi(buf) => buf.clear()
 			}
-		}
-	}
-
-	pub fn new(node: impl Node + 'static, id: &'static str) -> Self {
-		Self::new_dyn(Box::new(node), id)
-	}
-
-	pub fn new_dyn(node: Box<dyn Node>, id: &'static str) -> Self {
-		let mut outputs = Vec::with_capacity(node.get_output_count());
-
-		for output in 0..node.get_output_count() {
-			outputs.push(RwLock::new(
-				Buffer::from_bus_kind(node.get_output_kind(output))
-			))
-		}
-
-		NodeInstance {
-			inputs: vec![None; node.get_input_count()],
-			outputs,
-			node,
-			id
 		}
 	}
 }
@@ -172,20 +192,12 @@ pub struct Source;
 pub struct Sink;
 
 impl<T: Effect + 'static> Node for T {
-	fn get_input_count(&self) -> usize {
-		1
+	fn get_inputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
 	}
 
-	fn get_output_count(&self) -> usize {
-		1
-	}
-
-	fn get_input_kind(&self, _: usize) -> BusKind {
-		BusKind::Audio
-	}
-
-	fn get_output_kind(&self, _: usize) -> BusKind {
-		BusKind::Audio
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
 	}
 
 	fn advance(&mut self, frames: usize, config: &Config) {
@@ -211,25 +223,12 @@ impl<T: Effect + 'static> Node for T {
 		buffer.copy_from_slice(buf);
 		
 		self.render_effect(BufferAccess::Audio(buffer));
-
 	}
 }
 
 impl Node for Sink {
-	fn get_input_count(&self) -> usize {
-		1
-	}
-
-	fn get_output_count(&self) -> usize {
-		0
-	}
-
-	fn get_input_kind(&self, _: usize) -> BusKind {
-		BusKind::Audio
-	}
-
-	fn get_output_kind(&self, _: usize) -> BusKind {
-		unreachable!()
+	fn get_inputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
 	}
 
 	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
@@ -255,20 +254,8 @@ impl Display for Sink {
 }
 
 impl Node for Source {
-	fn get_input_count(&self) -> usize {
-		0
-	}
-
-	fn get_output_count(&self) -> usize {
-		1
-	}
-
-	fn get_input_kind(&self, _: usize) -> BusKind {
-		unreachable!()
-	}
-
-	fn get_output_kind(&self, _: usize) -> BusKind {
-		BusKind::Audio
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
 	}
 	
 	fn advance(&mut self, _: usize, _: &Config) { }
@@ -281,6 +268,27 @@ impl Node for Source {
 		};
 
 		buffer.fill(Frame([1.0f32, 0.0f32]));
+	}
+
+	fn get_params(&self) -> &[Parameter] { 
+		&[
+			Parameter {
+				kind: ParamKind::String,
+				text: "input",
+			}
+		]
+	}
+
+	fn param_updated(&mut self, param: usize, value: &ParamValue) {
+		assert!(param == 0);
+
+		let ParamValue::String(string) = value else {
+			panic!()
+		};
+
+		if string != "" {
+			todo!()
+		}
 	}
 }
 
@@ -309,20 +317,12 @@ impl Sine {
 }
 
 impl Node for Sine {
-	fn get_input_count(&self) -> usize {
-		1
+	fn get_inputs(&self) -> &[BusKind] {
+		&[BusKind::Control]
 	}
 
-	fn get_output_count(&self) -> usize {
-		1
-	}
-
-	fn get_input_kind(&self, _: usize) -> BusKind {
-		BusKind::Control
-	}
-
-	fn get_output_kind(&self, _: usize) -> BusKind {
-		BusKind::Audio
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
 	}
 
 	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
@@ -410,22 +410,9 @@ pub struct Trigger {
 
 
 impl Node for Trigger {
-	fn get_input_count(&self) -> usize {
-		0
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Control]
 	}
-
-	fn get_output_count(&self) -> usize {
-		1
-	}
-
-	fn get_input_kind(&self, _: usize) -> BusKind {
-		unreachable!()
-	}
-
-	fn get_output_kind(&self, _: usize) -> BusKind {
-		BusKind::Control
-	}
-
 	fn render(
 		&self,
 		_output: usize,
@@ -496,47 +483,39 @@ struct Osc {
 }
 
 impl Node for Osc {
-    fn get_input_count(&self) -> usize {
-        1
-    }
+	fn get_inputs(&self) -> &[BusKind] {
+		&[BusKind::Midi]
+	}
 
-    fn get_output_count(&self) -> usize {
-        1
-    }
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
+	}
 
-    fn get_input_kind(&self, input: usize) -> BusKind {
-        BusKind::Midi
-    }
+	fn render(
+			&self,
+			output: usize,
+			buffer: BufferAccess,
+			instance: &NodeInstance,
+			engine: &Engine
+		) {
+		todo!()
+	}
 
-    fn get_output_kind(&self, output: usize) -> BusKind {
-		BusKind::Audio
-    }
+	fn advance(
+			&mut self,
+			frames: usize,
+			config: &Config
+		) {
+		todo!()
+	}
 
-    fn render(
-		    &self,
-		    output: usize,
-		    buffer: BufferAccess,
-		    instance: &NodeInstance,
-		    engine: &Engine
-	    ) {
-        todo!()
-    }
-
-    fn advance(
-		    &mut self,
-		    frames: usize,
-		    config: &Config
-	    ) {
-        todo!()
-    }
-
-    fn seek(
-		    &mut self,
-		    position: usize,
-		    config: &Config,
-	    ) {
-        todo!()
-    }
+	fn seek(
+			&mut self,
+			position: usize,
+			config: &Config,
+		) {
+		todo!()
+	}
 }
 
 impl Display for Osc {
