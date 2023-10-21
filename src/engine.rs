@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug, sync::RwLockReadGuard, path::Path};
 
-use crate::node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef};
+use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef}, param::ParamValue};
 
 
 pub struct Config {
@@ -15,7 +15,7 @@ impl Config {
 	}
 }
 
-pub type NodeConstructor = Box<dyn Fn(&[&str]) -> Box<dyn Node> + Send>;
+pub type NodeConstructor = Box<dyn Fn() -> Box<dyn Node> + Send>;
 
 pub struct Engine {
 	pub config: Config,
@@ -46,8 +46,8 @@ impl Engine {
 			}
 		};
 
-		engine.register("chordial.sink", |_| Box::new(Sink));
-		engine.create_node("chordial.sink", &[]);
+		engine.register("chordial.sink", || Box::new(Sink));
+		engine.create_node("chordial.sink");
 		engine
 	}
 
@@ -61,22 +61,23 @@ impl Engine {
 		let mut current = lines.next();
 
 		while let Some(line) = current {
-			let mut words = line.split(" ");
+			let (idx, name) = line.split_at(line.find(" ").unwrap());
 
-			let idx = words.next().unwrap().parse::<usize>().unwrap();
-			let name = words.next().unwrap();
-			let args = words.collect::<Vec<_>>();
+			let name = &name[1..];
+			let idx = idx.parse::<usize>().unwrap();
 
 			let Some((id, ctor)) = self.constructors.get_key_value(name) else {
 				panic!("unknown node constructor `{name}`!");
 			};
 
-			let mut node = NodeInstance::new_dyn(ctor(&args), id);
+			let mut node = NodeInstance::new_dyn(ctor(), id);
 			
 			node.inputs.clear();
 			current = lines.next();
 
-			// parse inputs
+			let mut param_counter = 0;
+
+			// parse inputs and parameters
 			loop {
 				let Some(line) = current else {
 					break
@@ -100,6 +101,9 @@ impl Engine {
 					}));
 				} else if line == "in" {
 					node.inputs.push(None);
+				} else if line.starts_with("param ") {
+					node.set_param(param_counter, ParamValue::parse(&line[6..]));
+					param_counter += 1;
 				} else {
 					break
 				}
@@ -115,7 +119,7 @@ impl Engine {
 	pub fn register(
 		&mut self, 
 		name: &'static str, 
-		ctor: impl Fn(&[&str]) -> Box<dyn Node> + Send + 'static
+		ctor: impl Fn() -> Box<dyn Node> + Send + 'static
 	) {
 		if self.constructors.contains_key(name) {
 			panic!("constructor `{name}` already registered!")
@@ -135,12 +139,12 @@ impl Engine {
 		}
 	}
 
-	pub fn create_node(&mut self, name: &str, args: &[&str]) {
+	pub fn create_node(&mut self, name: &str) {
 		let Some((id, ctor)) = self.constructors.get_key_value(name) else {
 			panic!("unknown node constructor `{name}`!");
 		};
 
-		self.add_node_dyn(ctor(args), id);
+		self.add_node_dyn(ctor(), id);
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {

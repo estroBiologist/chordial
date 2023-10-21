@@ -2,7 +2,7 @@ use std::{fmt::{Debug, Display}, any::Any, sync::{RwLock, atomic::{Ordering, Ato
 
 use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope, param::{Parameter, ParamValue, ParamKind}};
 
-pub trait Node: Display + Send + Any {
+pub trait Node: Send + Any {
 	fn get_inputs(&self) -> &[BusKind] { &[] }
 	fn get_outputs(&self) -> &[BusKind] { &[] }
 	
@@ -48,7 +48,7 @@ impl Display for TimelineUnit {
 
 pub trait TimelineNode: Node {
 	fn get_length(&self) -> TimelineUnit;
-	fn set_position(&mut self, pos: TimelineUnit) -> TimelineUnit;
+	fn set_position(&mut self, pos: TimelineUnit);
 	fn set_start_offset(&mut self, offset: TimelineUnit);
 	fn set_end_offset(&mut self, offset: TimelineUnit);
 }
@@ -179,9 +179,17 @@ pub enum BufferAccess<'buf> {
 	Control(&'buf mut [f32]),
 }
 
-pub trait Effect: Display + Send {
+pub trait Effect: Send {
 	fn render_effect(&self, buffer: BufferAccess);
 	fn advance_effect(&mut self, frames: usize, config: &Config);
+	
+	#[allow(unused_variables)]
+	fn param_updated(&mut self, param: usize, value: &ParamValue) { }
+
+	#[allow(unused_variables)]
+	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> { None }
+
+	fn get_params(&self) -> &[Parameter] { &[] }
 }
 
 pub trait Generator {
@@ -224,6 +232,18 @@ impl<T: Effect + 'static> Node for T {
 		
 		self.render_effect(BufferAccess::Audio(buffer));
 	}
+
+	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> {
+		Effect::get_param_default_value(self, param)
+	}
+
+	fn get_params(&self) -> &[Parameter] {
+		Effect::get_params(self)
+	}
+
+	fn param_updated(&mut self, param: usize, value: &ParamValue) {
+		Effect::param_updated(self, param, value)
+	}
 }
 
 impl Node for Sink {
@@ -245,12 +265,6 @@ impl Node for Sink {
 	fn advance(&mut self, _: usize, _: &Config) { }
 
 	fn seek(&mut self, _: usize, _: &Config) { }
-}
-
-impl Display for Sink {
-	fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		Ok(())
-	}
 }
 
 impl Node for Source {
@@ -289,12 +303,6 @@ impl Node for Source {
 		if string != "" {
 			todo!()
 		}
-	}
-}
-
-impl Display for Source {
-	fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		Ok(())
 	}
 }
 
@@ -366,11 +374,26 @@ impl Node for Sine {
 	fn seek(&mut self, position: usize, _config: &Config) {
 		self.pos = position;
 	}
-}
 
-impl Display for Sine {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.rate)
+	fn get_params(&self) -> &[Parameter] {
+		&[
+			Parameter {
+				kind: ParamKind::Float,
+				text: "freq",
+			}
+		]
+	}
+	
+	fn get_param_default_value(&self, _: usize) -> Option<ParamValue> {
+		Some(ParamValue::Float(440.0))
+	}
+
+	fn param_updated(&mut self, _: usize, value: &ParamValue) {
+		let ParamValue::Float(val) = value else {
+			panic!()
+		};
+
+		self.rate = *val;
 	}
 }
 
@@ -395,11 +418,22 @@ impl Effect for Gain {
 	}
 
 	fn advance_effect(&mut self, _: usize, _: &Config) { }
-}
 
-impl Display for Gain {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.gain)
+	fn get_params(&self) -> &[Parameter] {
+		&[
+			Parameter {
+				kind: ParamKind::Float,
+				text: "gain",
+			}
+		]
+	}
+
+	fn param_updated(&mut self, _: usize, value: &ParamValue) {
+		let ParamValue::Float(val) = value else {
+			panic!()
+		};
+
+		self.gain = *val as f32;
 	}
 }
 
@@ -454,11 +488,11 @@ impl Node for Trigger {
 
 impl TimelineNode for Trigger {
 	fn get_length(&self) -> TimelineUnit {
-		todo!()
+		TimelineUnit(1)
 	}
 
-	fn set_position(&mut self, pos: TimelineUnit) -> TimelineUnit {
-		todo!()
+	fn set_position(&mut self, pos: TimelineUnit) {
+		self.node_pos = pos
 	}
 
 	fn set_start_offset(&mut self, offset: TimelineUnit) {
@@ -467,12 +501,6 @@ impl TimelineNode for Trigger {
 
 	fn set_end_offset(&mut self, offset: TimelineUnit) {
 		todo!()
-	}
-}
-
-impl Display for Trigger {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.node_pos)
 	}
 }
 
@@ -515,11 +543,5 @@ impl Node for Osc {
 			config: &Config,
 		) {
 		todo!()
-	}
-}
-
-impl Display for Osc {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		Ok(())
 	}
 }

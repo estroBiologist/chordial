@@ -97,26 +97,17 @@ stream opened with config:
 }
 
 fn register_builtin_nodes(engine: &mut Engine) {
-	engine.register("chordial.sine", |args| {
-		let [arg] = args else {
-			panic!()
-		};
-		Box::new(Sine::new(arg.parse().unwrap()))
+	engine.register("chordial.sine", || {
+		Box::new(Sine::new(440.0))
 	});
 
-	engine.register("chordial.gain", |args| {
-		let [arg] = args else {
-			panic!()
-		};
-		Box::new(Gain { gain: arg.parse().unwrap() })
+	engine.register("chordial.gain", || {
+		Box::new(Gain { gain: 0.0 })
 	});
 	
-	engine.register("chordial.trigger", |args| {
-		let [arg] = args else {
-			panic!()
-		};
+	engine.register("chordial.trigger", || {
 		Box::new(Trigger { 
-			node_pos: TimelineUnit(arg.parse().unwrap()),
+			node_pos: TimelineUnit(96),
 			tl_pos: 0
 		})
 	});
