@@ -143,6 +143,12 @@ impl Engine {
 		}
 	}
 
+	pub fn seek(&mut self, position: usize) {
+		for node in &mut self.nodes {
+			node.1.node.seek(position, &self.config)
+		}
+	}
+
 	pub fn create_node(&mut self, name: &str) {
 		let Some((id, ctor)) = self.constructors.get_key_value(name) else {
 			panic!("unknown node constructor `{name}`!");

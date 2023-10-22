@@ -520,28 +520,28 @@ impl Node for Osc {
 	}
 
 	fn render(
-			&self,
-			output: usize,
-			buffer: BufferAccess,
-			instance: &NodeInstance,
-			engine: &Engine
-		) {
+		&self,
+		output: usize,
+		buffer: BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	) {
 		todo!()
 	}
 
 	fn advance(
-			&mut self,
-			frames: usize,
-			config: &Config
-		) {
+		&mut self,
+		frames: usize,
+		config: &Config
+	) {
 		todo!()
 	}
 
 	fn seek(
-			&mut self,
-			position: usize,
-			config: &Config,
-		) {
+		&mut self,
+		position: usize,
+		config: &Config,
+	) {
 		todo!()
 	}
 }

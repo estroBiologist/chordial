@@ -1,19 +1,11 @@
 use std::{fs::File, path::{Path, PathBuf}, sync::{RwLock, Arc, Mutex}, time::Duration, io::Write};
 
-use engine::{Engine, Frame};
+use chordial::engine::{Engine, Frame};
 
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate, SupportedBufferSize};
 use wav::{Header, WAV_FORMAT_IEEE_FLOAT, BitDepth};
 
-use crate::node::{Gain, Sine, Trigger, TimelineUnit};
-
-pub mod adsr;
-pub mod engine;
-pub mod format;
-pub mod midi;
-pub mod node;
-pub mod param;
-mod util;
+use chordial::node::{Gain, Sine, Trigger, TimelineUnit};
 
 fn main() {
 	println!("chordial audio engine - proof of concept");
@@ -50,7 +42,7 @@ fn main() {
 	let config = StreamConfig {
 		channels: 2,
 		sample_rate: SampleRate(48000),
-		buffer_size: cpal::BufferSize::Default,
+		buffer_size: cpal::BufferSize::Fixed(1024),
 	};
 
 	let mut engine = Engine::new(config.sample_rate.0);
@@ -110,7 +102,7 @@ stream opened with config:
 		Header::new(
 			WAV_FORMAT_IEEE_FLOAT,
 			2,
-			44100,
+			config.sample_rate.0,
 			32,
 		), 
 		&BitDepth::ThirtyTwoFloat(out_buffer.write().unwrap().drain(..).collect()), 
