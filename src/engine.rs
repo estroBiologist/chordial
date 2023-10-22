@@ -4,7 +4,7 @@ use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, Buffe
 
 
 pub struct Config {
-	pub sample_rate: usize,
+	pub sample_rate: u32,
 	pub bpm: f64,
 	pub tuning: f32,
 }
@@ -34,13 +34,13 @@ impl Debug for Frame {
 }
 
 impl Engine {
-	pub fn new() -> Self {
+	pub fn new(sample_rate: u32) -> Self {
 		let mut engine = Engine { 
 			nodes: HashMap::new(),
 			constructors: HashMap::new(),
 			node_counter: 0,
 			config: Config {
-				sample_rate: 44100,
+				sample_rate,
 				bpm: 120.0,
 				tuning: 440.0,
 			}
@@ -56,6 +56,10 @@ impl Engine {
 		self.node_counter = 0;
 
 		let file = std::fs::read_to_string(path).unwrap();
+
+		// fucking windows
+		let file = file.replace("\r\n", "\n");
+
 		let mut lines = file.split("\n");
 		
 		let mut current = lines.next();
@@ -67,7 +71,7 @@ impl Engine {
 			let idx = idx.parse::<usize>().unwrap();
 
 			let Some((id, ctor)) = self.constructors.get_key_value(name) else {
-				panic!("unknown node constructor `{name}`!");
+				panic!("unknown node constructor `{name}`");
 			};
 
 			let mut node = NodeInstance::new_dyn(ctor(), id);

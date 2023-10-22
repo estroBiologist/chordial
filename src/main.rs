@@ -2,7 +2,7 @@ use std::{fs::File, path::{Path, PathBuf}, sync::{RwLock, Arc, Mutex}, time::Dur
 
 use engine::{Engine, Frame};
 
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate, SupportedBufferSize};
 use wav::{Header, WAV_FORMAT_IEEE_FLOAT, BitDepth};
 
 use crate::node::{Gain, Sine, Trigger, TimelineUnit};
@@ -25,14 +25,36 @@ fn main() {
 	let out_buffer_thread = out_buffer.clone();
 
 	println!("using output device `{}`", device.name().unwrap_or("(could not get device name)".to_string()));
+	
+	println!("\nsupported configurations:\n");
+	
+	for config in device.supported_output_configs().unwrap() {
+		println!("  sample rate range: ({} - {})", 
+			config.min_sample_rate().0,
+			config.max_sample_rate().0,
+		);
+		
+		match config.buffer_size() {
+			SupportedBufferSize::Range { min, max } => {
+				println!("  buffer size: ({} - {})", min, max);
+			}
+			SupportedBufferSize::Unknown => {
+				println!("  buffer size: unknown");
+			}
+		}
+
+		println!("  channels: {}", config.channels());
+		println!();
+	}
 
 	let config = StreamConfig {
 		channels: 2,
-		sample_rate: SampleRate(44100),
+		sample_rate: SampleRate(48000),
 		buffer_size: cpal::BufferSize::Default,
 	};
 
-	let mut engine = Engine::new();
+	let mut engine = Engine::new(config.sample_rate.0);
+
 	register_builtin_nodes(&mut engine);
 	engine.load_from_file(&PathBuf::from("state.chrp"));
 
