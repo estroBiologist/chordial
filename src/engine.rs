@@ -22,6 +22,7 @@ pub struct Engine {
 	nodes: BTreeMap<usize, NodeInstance>,
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
+	position: usize,
 }
 
 #[derive(Copy, Clone)]
@@ -43,7 +44,8 @@ impl Engine {
 				sample_rate,
 				bpm: 120.0,
 				tuning: 440.0,
-			}
+			},
+			position: 0,
 		};
 
 		engine.register("chordial.sink", || Box::new(Sink));
@@ -145,12 +147,20 @@ impl Engine {
 			node.node.advance(buffer.len(), &self.config);
 			node.clear_buffers();
 		}
+
+		self.position += buffer.len();
 	}
 
 	pub fn seek(&mut self, position: usize) {
+		self.position = position;
+
 		for node in &mut self.nodes {
 			node.1.node.seek(position, &self.config)
 		}
+	}
+
+	pub fn position(&self) -> usize {
+		self.position
 	}
 
 	pub fn create_node(&mut self, name: &str) {
