@@ -47,7 +47,6 @@ fn main() {
 
 	let mut engine = Engine::new(config.sample_rate.0);
 
-	register_builtin_nodes(&mut engine);
 	engine.load_from_file(&PathBuf::from("state.chrp"));
 
 	let mut state_file = File::create("state.chrp").unwrap();
@@ -108,21 +107,4 @@ stream opened with config:
 		&BitDepth::ThirtyTwoFloat(out_buffer.write().unwrap().drain(..).collect()), 
 		&mut out
 	).unwrap();
-}
-
-fn register_builtin_nodes(engine: &mut Engine) {
-	engine.register("chordial.sine", || {
-		Box::new(Sine::new(440.0))
-	});
-
-	engine.register("chordial.gain", || {
-		Box::new(Gain { gain: 0.0 })
-	});
-	
-	engine.register("chordial.trigger", || {
-		Box::new(Trigger { 
-			node_pos: TimelineUnit(0),
-			tl_pos: 0
-		})
-	});
 }

@@ -442,6 +442,14 @@ pub struct Trigger {
 	pub tl_pos: usize,
 }
 
+impl Trigger {
+	pub fn new() -> Self {
+		Trigger {
+			node_pos: TimelineUnit(0),
+			tl_pos: 0,
+		}
+	}
+}
 
 impl Node for Trigger {
 	fn get_outputs(&self) -> &[BusKind] {

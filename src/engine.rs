@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, BTreeMap}, fmt::Debug, sync::RwLockReadGuard, path::Path};
 
-use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef}, param::ParamValue};
+use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef, Sine, Gain, Trigger}, param::ParamValue};
 
 
 pub struct Config {
@@ -47,6 +47,10 @@ impl Engine {
 		};
 
 		engine.register("chordial.sink", || Box::new(Sink));
+		engine.register("chordial.sine", || Box::new(Sine::new(440.0)));
+		engine.register("chordial.gain", || Box::new(Gain { gain: 0.0 }));
+		engine.register("chordial.trigger", || Box::new(Trigger::new()));
+
 		engine.create_node("chordial.sink");
 		engine
 	}
