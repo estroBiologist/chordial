@@ -121,7 +121,7 @@ fn register_builtin_nodes(engine: &mut Engine) {
 	
 	engine.register("chordial.trigger", || {
 		Box::new(Trigger { 
-			node_pos: TimelineUnit(96),
+			node_pos: TimelineUnit(0),
 			tl_pos: 0
 		})
 	});

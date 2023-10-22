@@ -3,6 +3,8 @@ name = "chordial"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "chordial"
 
 [dependencies]
 cpal = "0.15.2"

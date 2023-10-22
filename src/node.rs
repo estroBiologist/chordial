@@ -460,7 +460,7 @@ impl Node for Trigger {
 
 		let node_pos_tl = engine.config.tl_units_to_frames(self.node_pos);
 		
-		if node_pos_tl > self.tl_pos {
+		if node_pos_tl >= self.tl_pos {
 			let relative = node_pos_tl - self.tl_pos;
 			
 			if relative < buffer.len() {
