@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, sync::RwLockReadGuard, path::Path};
+use std::{collections::{HashMap, BTreeMap}, fmt::Debug, sync::RwLockReadGuard, path::Path};
 
 use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef}, param::ParamValue};
 
@@ -19,7 +19,7 @@ pub type NodeConstructor = Box<dyn Fn() -> Box<dyn Node> + Send>;
 
 pub struct Engine {
 	pub config: Config,
-	nodes: HashMap<usize, NodeInstance>,
+	nodes: BTreeMap<usize, NodeInstance>,
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
 }
@@ -36,7 +36,7 @@ impl Debug for Frame {
 impl Engine {
 	pub fn new(sample_rate: u32) -> Self {
 		let mut engine = Engine { 
-			nodes: HashMap::new(),
+			nodes: BTreeMap::new(),
 			constructors: HashMap::new(),
 			node_counter: 0,
 			config: Config {

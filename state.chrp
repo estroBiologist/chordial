@@ -1,8 +1,6 @@
 0 chordial.sink
 in 2.0
 
-3 chordial.trigger
-
 1 chordial.sine
 in 3.0
 param f:880
@@ -10,4 +8,6 @@ param f:880
 2 chordial.gain
 in 1.0
 param f:-10
+
+3 chordial.trigger
 
