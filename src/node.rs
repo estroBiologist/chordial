@@ -14,6 +14,8 @@ pub trait Node: Send + Any {
 
 	fn get_params(&self) -> &[Parameter] { &[] }
 
+	fn get_name(&self) -> &'static str;
+
 	fn render(
 		&self,
 		output: usize,
@@ -190,6 +192,8 @@ pub trait Effect: Send {
 	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> { None }
 
 	fn get_params(&self) -> &[Parameter] { &[] }
+
+	fn get_name(&self) -> &'static str;
 }
 
 pub trait Generator {
@@ -206,6 +210,10 @@ impl<T: Effect + 'static> Node for T {
 
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Audio]
+	}
+
+	fn get_name(&self) -> &'static str {
+		Effect::get_name(self)
 	}
 
 	fn advance(&mut self, frames: usize, config: &Config) {
@@ -251,6 +259,10 @@ impl Node for Sink {
 		&[BusKind::Audio]
 	}
 
+	fn get_name(&self) -> &'static str {
+		"Sink"
+	}
+
 	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
 		let Some(input) = &instance.inputs[0] else {
 			// Input not connected, don't render anything
@@ -270,6 +282,10 @@ impl Node for Sink {
 impl Node for Source {
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Audio]
+	}
+	
+	fn get_name(&self) -> &'static str {
+		"Source"
 	}
 	
 	fn advance(&mut self, _: usize, _: &Config) { }
@@ -331,6 +347,10 @@ impl Node for Sine {
 
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Audio]
+	}
+
+	fn get_name(&self) -> &'static str {
+		"Sine"
 	}
 
 	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
@@ -435,6 +455,10 @@ impl Effect for Gain {
 
 		self.gain = *val as f32;
 	}
+
+	fn get_name(&self) -> &'static str {
+		"Gain"
+	}
 }
 
 pub struct Trigger {
@@ -455,6 +479,11 @@ impl Node for Trigger {
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Control]
 	}
+
+	fn get_name(&self) -> &'static str {
+		"Trigger"
+	}
+
 	fn render(
 		&self,
 		_output: usize,
@@ -525,6 +554,10 @@ impl Node for Osc {
 
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Audio]
+	}
+
+	fn get_name(&self) -> &'static str {
+		"Osc"
 	}
 
 	fn render(
