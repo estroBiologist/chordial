@@ -142,7 +142,7 @@ impl Engine {
 		let sink = &self.nodes[&0];
 
 		sink.node.render(0, BufferAccess::Audio(buffer), sink, self);
-		
+
 		for node in self.nodes.values_mut() {
 			node.node.advance(buffer.len(), &self.config);
 			node.clear_buffers();
@@ -212,6 +212,10 @@ impl Engine {
 		input_node.render(output_ref.output, buffer_len, self);
 
 		input_node.outputs[output_ref.output].read().unwrap()
+	}
+
+	pub fn constructors(&self) -> impl Iterator<Item = &str> {
+		self.constructors.keys().copied()
 	}
 }
 
