@@ -163,12 +163,12 @@ impl Engine {
 		self.position
 	}
 
-	pub fn create_node(&mut self, name: &str) {
+	pub fn create_node(&mut self, name: &str) -> usize {
 		let Some((id, ctor)) = self.constructors.get_key_value(name) else {
 			panic!("unknown node constructor `{name}`!");
 		};
 
-		self.add_node_dyn(ctor(), id);
+		self.add_node_dyn(ctor(), id)
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {
@@ -176,14 +176,16 @@ impl Engine {
 		self.node_counter += 1;
 	}
 
-    pub fn add_node(&mut self, node: impl Node + 'static, id: &'static str) {
+    pub fn add_node(&mut self, node: impl Node + 'static, id: &'static str) -> usize {
         self.nodes.insert(self.node_counter, NodeInstance::new(node, id));
         self.node_counter += 1;
+		self.node_counter - 1
     }
 
-	pub fn add_node_dyn(&mut self, node: Box<dyn Node + 'static>, id: &'static str) {
+	pub fn add_node_dyn(&mut self, node: Box<dyn Node + 'static>, id: &'static str) -> usize {
 		self.nodes.insert(self.node_counter, NodeInstance::new_dyn(node, id));
 		self.node_counter += 1;
+		self.node_counter - 1
 	}
 
 	pub fn get_node(&self, node: usize) -> Option<&NodeInstance> {
