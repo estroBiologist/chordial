@@ -19,6 +19,7 @@ pub type NodeConstructor = Box<dyn Fn() -> Box<dyn Node> + Send>;
 
 pub struct Engine {
 	pub config: Config,
+	pub playing: bool,
 	nodes: BTreeMap<usize, NodeInstance>,
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
@@ -46,6 +47,7 @@ impl Engine {
 				tuning: 440.0,
 			},
 			position: 0,
+			playing: false,
 		};
 
 		engine.register("chordial.sink", || Box::new(Sink));
@@ -139,6 +141,11 @@ impl Engine {
 	}
 
 	pub fn render(&mut self, buffer: &mut [Frame]) {
+		if !self.playing {
+			buffer.fill(Frame([0f32; 2]));
+			return
+		}
+
 		let sink = &self.nodes[&0];
 
 		sink.node.render(0, BufferAccess::Audio(buffer), sink, self);
