@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, BTreeMap}, fmt::Debug, sync::RwLockReadGuard, path::Path};
+use std::{collections::{BTreeMap, HashMap}, fmt::Debug, path::Path, sync::RwLockReadGuard, time::Instant};
 
 use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef, Sine, Gain, Trigger}, param::ParamValue};
 
@@ -20,10 +20,15 @@ pub type NodeConstructor = Box<dyn Fn() -> Box<dyn Node> + Send>;
 pub struct Engine {
 	pub config: Config,
 	pub playing: bool,
+	
 	nodes: BTreeMap<usize, NodeInstance>,
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
 	position: usize,
+
+	pub dbg_buffer_size: u32,
+	pub dbg_buffer_time: f32,
+	pub dbg_process_time: f32,
 }
 
 #[derive(Copy, Clone)]
@@ -48,6 +53,9 @@ impl Engine {
 			},
 			position: 0,
 			playing: false,
+			dbg_buffer_size: 0u32,
+			dbg_buffer_time: 0f32,
+			dbg_process_time: 0f32,
 		};
 
 		engine.register("chordial.sink", || Box::new(Sink));
@@ -141,6 +149,8 @@ impl Engine {
 	}
 
 	pub fn render(&mut self, buffer: &mut [Frame]) {
+		let start = Instant::now();
+
 		if !self.playing {
 			buffer.fill(Frame([0f32; 2]));
 			return
@@ -156,6 +166,10 @@ impl Engine {
 		}
 
 		self.position += buffer.len();
+		
+		self.dbg_process_time = (Instant::now() - start).as_secs_f32();
+		self.dbg_buffer_time = buffer.len() as f32 / self.config.sample_rate as f32;
+		self.dbg_buffer_size = buffer.len() as u32;
 	}
 
 	pub fn seek(&mut self, position: usize) {

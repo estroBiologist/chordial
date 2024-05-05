@@ -1,11 +1,9 @@
-use std::{fs::File, path::{Path, PathBuf}, sync::{RwLock, Arc, Mutex}, time::Duration, io::Write};
+use std::{fs::File, io::Write, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}, time::{Duration, Instant}};
 
 use chordial::engine::{Engine, Frame};
 
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig, SampleRate, SupportedBufferSize};
 use wav::{Header, WAV_FORMAT_IEEE_FLOAT, BitDepth};
-
-use chordial::node::{Gain, Sine, Trigger, TimelineUnit};
 
 fn main() {
 	println!("chordial audio engine - proof of concept");
@@ -42,12 +40,13 @@ fn main() {
 	let config = StreamConfig {
 		channels: 2,
 		sample_rate: SampleRate(44100),
-		buffer_size: cpal::BufferSize::Fixed(1024),
+		buffer_size: cpal::BufferSize::Fixed(128),
 	};
 
 	let mut engine = Engine::new(config.sample_rate.0);
 
 	engine.load_from_file(&PathBuf::from("state.chrp"));
+	engine.playing = true;
 
 	let mut state_file = File::create("state.chrp").unwrap();
 	write!(state_file, "{engine}").unwrap();
@@ -56,7 +55,7 @@ fn main() {
 	let thread_engine = engine.clone();
 
 	let mut buffer = vec![];
-	
+
 	let stream = device.build_output_stream(
 		&config,
 
@@ -92,9 +91,33 @@ stream opened with config:
 		config.sample_rate.0,
 		config.buffer_size
 	);
-
+	
 	stream.play().unwrap();
-	std::thread::sleep(Duration::from_secs(5));
+
+	let runtime_secs = 5.0;
+	let start = Instant::now();
+	
+	loop {
+		if (Instant::now() - start).as_secs_f64() >= runtime_secs {
+			break
+		}
+
+		std::thread::sleep(Duration::from_secs_f64(0.2));
+		
+		let (process_time, buffer_time, buffer_size) = {
+			let lock = engine.lock().unwrap();
+			(lock.dbg_process_time, lock.dbg_buffer_time, lock.dbg_buffer_size)
+		};
+
+		println!("ct/bt: {:.2}% - ct: {:.2}ms - bt: {:.2}ms - buf: {}",
+			(process_time / buffer_time) * 100.0f32,
+			process_time * 1000.0f32,
+			buffer_time * 1000.0f32,
+			buffer_size,
+		)
+	}
+
+	
 	stream.pause().unwrap();
 
 	wav::write(
