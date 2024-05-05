@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::Debug, path::Path, sync::RwLockReadGuard, time::Instant};
+use std::{collections::{BTreeMap, HashMap}, fmt::Debug, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{NodeInstance, Sink, Node, TimelineUnit, BEAT_DIVISIONS, BufferAccess, Buffer, OutputRef, Sine, Gain, Trigger}, param::ParamValue};
+use crate::{node::{Buffer, BufferAccess, BusKind, Gain, Node, NodeInstance, OutputRef, Sine, Sink, TimelineUnit, Trigger, BEAT_DIVISIONS}, param::ParamValue};
 
 
 pub struct Config {
@@ -37,6 +37,21 @@ pub struct Frame(pub [f32; 2]);
 impl Debug for Frame {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.write_str(&format!("({:?})", self.0))
+	}
+}
+
+impl AddAssign for Frame {
+	fn add_assign(&mut self, rhs: Self) {
+		self.0[0] += rhs.0[0];
+		self.0[1] += rhs.0[1];
+	}
+}
+
+impl Add for Frame {
+	type Output = Frame;
+
+	fn add(self, rhs: Self) -> Self::Output {
+		Frame([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1]])
 	}
 }
 
@@ -110,17 +125,31 @@ impl Engine {
 				}
 
 				if line.starts_with("in ") {
-					let inputs = line[3..].split(".").collect::<Vec<_>>();
-					let [noderef, output] = inputs.as_slice() else {
-						panic!()
-					};
+					let inputs = line[3..].split(" ").collect::<Vec<_>>();
+					let mut input_data = (vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control)));
 
-					node.inputs.push(Some(OutputRef {
-						node: noderef.parse().unwrap(),
-						output: output.parse().unwrap(),
-					}));
+					for input_node in &inputs {
+						let input_node = input_node.split(".").collect::<Vec<_>>();
+						let [noderef, output] = input_node.as_slice() else {
+							panic!()
+						};
+					
+						input_data.0.push(OutputRef {
+							node: noderef.parse().unwrap(),
+							output: output.parse().unwrap(),
+						});
+					}
+
+					if input_data.0.len() > 2 {
+						input_data.1 = RwLock::new(
+							Buffer::from_bus_kind(node.node.get_inputs()[node.inputs.len()])
+						);
+					}
+
+					node.inputs.push(input_data);
+					
 				} else if line == "in" {
-					node.inputs.push(None);
+					node.inputs.push((vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control))));
 				} else if line.starts_with("param ") {
 					node.set_param(param_counter, ParamValue::parse(&line[6..]));
 					param_counter += 1;
@@ -229,7 +258,11 @@ impl Engine {
 		self.nodes.iter_mut()
 	}
 
-	pub fn poll_node_output(&self, output_ref: &OutputRef, buffer_len: usize) -> RwLockReadGuard<'_, Buffer> {
+	pub fn poll_node_output<'access>(
+		&'access self,
+		output_ref: &OutputRef,
+		buffer_len: usize
+	) -> RwLockReadGuard<'access, Buffer> {
 		let input_node = self.get_node(output_ref.node).unwrap();
 		
 		input_node.render(output_ref.output, buffer_len, self);

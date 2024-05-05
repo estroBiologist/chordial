@@ -1,4 +1,4 @@
-use std::{fmt::{Debug, Display}, any::Any, sync::{RwLock, atomic::{Ordering, AtomicUsize}}};
+use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
 use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope, param::{Parameter, ParamValue, ParamKind}};
 
@@ -37,6 +37,80 @@ pub trait Node: Send + Any {
 	);
 }
 
+
+pub trait NodeUtil {
+	fn poll_input<'buf>(
+		&self,
+		input: usize,
+		buffer_len: usize,
+		instance: &'buf NodeInstance,
+		engine: &'buf Engine
+	) -> Option<RwLockReadGuard<'buf, Buffer>>;
+}
+
+impl<T: Node> NodeUtil for T {
+	fn poll_input<'buf>(
+		&self,
+		input: usize,
+		buffer_len: usize,
+		instance: &'buf NodeInstance,
+		engine: &'buf Engine
+	) -> Option<RwLockReadGuard<'buf, Buffer>> {
+		let refs = &instance.inputs[input];
+
+		if refs.0.len() < 2 {
+			assert!(instance.inputs[input].0.len() < 2);
+			
+			let [output_ref] = instance.inputs[input].0.as_slice() else {
+				return None
+			};
+
+			Some(engine.poll_node_output(output_ref, buffer_len))
+		} else {
+			let mut access = refs.1.write().unwrap();
+
+			for output_ref in &refs.0 {
+				let buf = &*engine.poll_node_output(output_ref, buffer_len);
+				
+				if access.len() != buffer_len {
+					if access.len() == 0 {
+						*access = Buffer::from_bus_kind(buf.get_bus_kind());
+					}
+
+					access.resize(buffer_len);
+				}
+
+				match (&mut *access, buf) {
+					(Buffer::Audio(access), Buffer::Audio(buf)) => {
+						access
+							.iter_mut()
+							.zip(buf)
+							.for_each(|(a, b)| *a += *b);
+							
+					}
+	
+					(Buffer::Midi(_access), Buffer::Midi(_buf)) => {
+						todo!("concatenating midi message chains is not yet supported!")
+					}
+	
+					(Buffer::Control(access), Buffer::Control(buf)) => {
+						access
+							.iter_mut()
+							.zip(buf)
+							.for_each(|(a, b)| *a += *b);
+					}
+	
+					_ => panic!()
+				}
+			}
+			
+			drop(access);
+
+			Some(refs.1.read().unwrap())
+		}
+	}
+}
+
 pub const BEAT_DIVISIONS: u32 = 24;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,7 +130,7 @@ pub trait TimelineNode: Node {
 }
 
 pub struct NodeInstance {
-	pub inputs: Vec<Option<OutputRef>>,
+	pub inputs: Vec<(Vec<OutputRef>, RwLock<Buffer>)>,
 	pub outputs: Vec<RwLock<Buffer>>,
 	pub node: Box<dyn Node>,
 	pub id: &'static str,
@@ -70,7 +144,11 @@ impl NodeInstance {
 
 	pub fn new_dyn(node: Box<dyn Node>, id: &'static str) -> Self {
 		NodeInstance {
-			inputs: vec![None; node.get_inputs().len()],
+			inputs: node
+						.get_inputs()
+						.iter()
+						.map(|_| (vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control))))
+						.collect(),
 			outputs: node
 						.get_outputs()
 						.iter()
@@ -111,6 +189,12 @@ impl NodeInstance {
 	}
 
 	pub fn clear_buffers(&mut self) {
+		for (_, buffer) in &mut self.inputs {
+			if buffer.read().unwrap().len() > 0 {
+				buffer.write().unwrap().clear();
+			}
+		}
+
 		for buffer in &mut self.outputs {
 			match &mut *buffer.write().unwrap() {
 				Buffer::Audio(buf) => buf.clear(),
@@ -141,7 +225,7 @@ pub enum Buffer {
 }
 
 impl Buffer {
-	fn from_bus_kind(kind: BusKind) -> Self {
+	pub fn from_bus_kind(kind: BusKind) -> Self {
 		match kind {
 			BusKind::Audio => Buffer::Audio(vec![]),
 			BusKind::Midi => Buffer::Midi(vec![]),
@@ -149,7 +233,15 @@ impl Buffer {
 		}
 	}
 
-	fn get_buffer_access(&mut self) -> BufferAccess {
+	pub fn get_bus_kind(&self) -> BusKind {
+		match self {
+			Buffer::Audio(_) => BusKind::Audio,
+			Buffer::Control(_) => BusKind::Control,
+			Buffer::Midi(_) => BusKind::Midi,
+		}
+	}
+
+	pub fn get_buffer_access(&mut self) -> BufferAccess {
 		match self {
 			Buffer::Audio(buf) => BufferAccess::Audio(buf),
 			Buffer::Control(buf) => BufferAccess::Control(buf),
@@ -157,7 +249,15 @@ impl Buffer {
 		}
 	}
 
-	fn len(&self) -> usize {
+	pub fn clear(&mut self) {
+		match self {
+			Buffer::Audio(buf) => buf.clear(),
+			Buffer::Control(buf) => buf.clear(),
+			Buffer::Midi(buf) => buf.clear(),
+		}
+	}
+
+	pub fn len(&self) -> usize {
 		match self {
 			Buffer::Audio(buf) => buf.len(),
 			Buffer::Midi(buf) => buf.len(),
@@ -165,7 +265,7 @@ impl Buffer {
 		}
 	}
 
-	fn resize(&mut self, len: usize) {
+	pub fn resize(&mut self, len: usize) {
 		match self {
 			Buffer::Audio(buf) => buf.resize(len, Frame([0.0; 2])),
 			Buffer::Midi(buf) => buf.resize(len, MidiMessageChain::default()),
@@ -179,6 +279,16 @@ pub enum BufferAccess<'buf> {
 	Audio(&'buf mut [Frame]),
 	Midi(&'buf mut [MidiMessageChain]),
 	Control(&'buf mut [f32]),
+}
+
+impl<'buf> BufferAccess<'buf> {
+	fn len(&self) -> usize {
+		match self {
+			BufferAccess::Audio(buf) => buf.len(),
+			BufferAccess::Midi(buf) => buf.len(),
+			BufferAccess::Control(buf) => buf.len(),
+		}
+	}
 }
 
 pub trait Effect: Send {
@@ -222,23 +332,20 @@ impl<T: Effect + 'static> Node for T {
 	
 	fn seek(&mut self, _: usize, _: &Config) { }
 
-	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		let Some(input) = &instance.inputs[0] else {
-			// Input not connected, don't render anything
+	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
+		let Some(buf) = self.poll_input(0, buffer.len(), instance, engine) else {
 			return
 		};
 
-		let BufferAccess::Audio(buffer) = buffer else {
+		let (BufferAccess::Audio(output), Buffer::Audio(input)) = (&mut buffer, &*buf) else {
 			panic!()
 		};
 
-		let Buffer::Audio(buf) = &*engine.poll_node_output(input, buffer.len()) else {
-			panic!()
-		};
-
-		buffer.copy_from_slice(buf);
+		output.copy_from_slice(&input);
 		
-		self.render_effect(BufferAccess::Audio(buffer));
+		drop(buf);
+
+		self.render_effect(buffer);
 	}
 
 	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> {
@@ -263,15 +370,16 @@ impl Node for Sink {
 		"Sink"
 	}
 
-	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		let Some(input) = &instance.inputs[0] else {
-			// Input not connected, don't render anything
+	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
+		let Some(buf) = self.poll_input(0, buffer.len(), instance, engine) else {
 			return
 		};
 
-		let input_node = engine.get_node(input.node).unwrap();
-		
-		input_node.node.render(input.output, buffer, input_node, engine);
+		let (BufferAccess::Audio(output), Buffer::Audio(input)) = (&mut buffer, &*buf) else {
+			panic!()
+		};
+
+		output.copy_from_slice(input);
 	}
 
 	fn advance(&mut self, _: usize, _: &Config) { }
@@ -358,12 +466,12 @@ impl Node for Sine {
 			panic!()
 		};
 		
-		let Some(input) = &instance.inputs[0] else {
-			// Input not connected, don't render anything
+		let Some(input_buf) = self.poll_input(0, buffer.len(), instance, engine) else {
 			return
 		};
 
-		let Buffer::Control(input_buf) = &*engine.poll_node_output(input, buffer.len()) else {
+
+		let Buffer::Control(input_buf) = &*input_buf else {
 			panic!()
 		};
 		

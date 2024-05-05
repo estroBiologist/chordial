@@ -9,11 +9,13 @@ impl Display for Engine {
 			write!(f, "{idx} {}\n", node.id)?;
 			
 			for input in &node.inputs {
-				if let Some(input) = input {
-					writeln!(f, "in {}.{}", input.node, input.output)?;
-				} else {
-					writeln!(f, "in")?;
+				write!(f, "in")?;
+
+				for input_node in &input.0 {
+					write!(f, " {}.{}", input_node.node, input_node.output)?;
 				}
+
+				write!(f, "\n")?;
 			}
 
 			for (_, value) in node.get_params() {

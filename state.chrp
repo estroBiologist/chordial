@@ -6,8 +6,12 @@ in 3.0
 param f:880
 
 2 chordial.gain
-in 1.0
-param f:-10
+in 1.0 4.0
+param f:-20
 
 3 chordial.trigger
+
+4 chordial.sine
+in 3.0
+param f:554.37
 
