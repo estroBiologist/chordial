@@ -250,6 +250,22 @@ impl Engine {
 		self.nodes.len()
 	}
 
+	pub fn has_node(&self, node: usize) -> bool {
+		self.nodes.contains_key(&node)
+	}
+
+	pub fn delete_node(&mut self, node: usize) {
+		let Some(_) = self.nodes.remove(&node) else {
+			return
+		};
+
+		for other in self.nodes.values_mut() {
+			for input in &mut other.inputs {
+				input.0.retain(|input_node| input_node.node != node);
+			}
+		}
+	}
+
 	pub fn nodes(&self) -> impl Iterator<Item = (&usize, &NodeInstance)> {
 		self.nodes.iter()
 	}
