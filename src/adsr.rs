@@ -2,14 +2,14 @@ use crate::util;
 
 
 #[derive(Debug, Copy, Clone)]
-pub struct Envelope {
+pub struct EnvelopeDepr {
 	pub attack: f32,
 	pub decay: f32,
 	pub sustain: f32,
 	pub release: f32,
 }
 
-impl Envelope {
+impl EnvelopeDepr {
 	pub fn get_gain_released(&self, start: f32, release: f32, current: f32) -> f32 {
 		let gain = self.get_gain(start, release);
 		let time = current - release;

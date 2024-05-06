@@ -1,10 +1,13 @@
 use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::Envelope, param::{Parameter, ParamValue, ParamKind}};
+use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::EnvelopeDepr, param::{Parameter, ParamValue, ParamKind}};
 
 pub trait Node: Send + Any {
 	fn get_inputs(&self) -> &[BusKind] { &[] }
 	fn get_outputs(&self) -> &[BusKind] { &[] }
+
+	fn get_input_names(&self) -> &'static [&'static str] { &[] }
+	fn get_output_names(&self) -> &'static [&'static str] { &[] }
 	
 	#[allow(unused_variables)]
 	fn param_updated(&mut self, param: usize, value: &ParamValue) { }
@@ -35,6 +38,35 @@ pub trait Node: Send + Any {
 		position: usize,
 		config: &Config,
 	);
+
+	// Timeline functionality
+	//
+	// A node with timeline support may override these functions.
+	// To support timeline features, `is_timeline_node()` should return true,
+	// and the relevant functions should be overridden to handle timeline repositioning.
+	
+	fn is_timeline_node(&self) -> bool {
+		false
+	}
+
+	fn get_length(&self) -> TimelineUnit {
+		panic!()
+	}
+
+	#[allow(unused_variables)]
+	fn set_position(&mut self, pos: TimelineUnit) {
+		panic!()
+	}
+
+	#[allow(unused_variables)]
+	fn set_start_offset(&mut self, offset: TimelineUnit) {
+		panic!()
+	}
+
+	#[allow(unused_variables)]
+	fn set_end_offset(&mut self, offset: TimelineUnit) {
+		panic!()
+	}
 }
 
 
@@ -89,8 +121,11 @@ impl<T: Node> NodeUtil for T {
 							
 					}
 	
-					(Buffer::Midi(_access), Buffer::Midi(_buf)) => {
-						todo!("concatenating midi message chains is not yet supported!")
+					(Buffer::Midi(access), Buffer::Midi(buf)) => {
+						access
+							.iter_mut()
+							.zip(buf)
+							.for_each(|(a, b)| a.append_chain(b.clone()))
 					}
 	
 					(Buffer::Control(access), Buffer::Control(buf)) => {
@@ -122,12 +157,6 @@ impl Display for TimelineUnit {
 	}
 }
 
-pub trait TimelineNode: Node {
-	fn get_length(&self) -> TimelineUnit;
-	fn set_position(&mut self, pos: TimelineUnit);
-	fn set_start_offset(&mut self, offset: TimelineUnit);
-	fn set_end_offset(&mut self, offset: TimelineUnit);
-}
 
 pub struct NodeInstance {
 	pub inputs: Vec<(Vec<OutputRef>, RwLock<Buffer>)>,
@@ -629,9 +658,11 @@ impl Node for Trigger {
 	) {
 		self.tl_pos = position;
 	}
-}
 
-impl TimelineNode for Trigger {
+	fn is_timeline_node(&self) -> bool {
+		true
+	}
+
 	fn get_length(&self) -> TimelineUnit {
 		TimelineUnit(1)
 	}
@@ -641,18 +672,16 @@ impl TimelineNode for Trigger {
 	}
 
 	fn set_start_offset(&mut self, offset: TimelineUnit) {
-		todo!()
 	}
 
 	fn set_end_offset(&mut self, offset: TimelineUnit) {
-		todo!()
 	}
 }
 
 struct Osc {
 	pos: usize,
 	notes: RwLock<Vec<MidiNoteDesc>>,
-	envelope: Envelope,
+	envelope: EnvelopeDepr,
 }
 
 impl Node for Osc {
@@ -666,6 +695,48 @@ impl Node for Osc {
 
 	fn get_name(&self) -> &'static str {
 		"Osc"
+	}
+
+	fn render(
+		&self,
+		output: usize,
+		buffer: BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	) {
+		todo!()
+	}
+
+	fn advance(
+		&mut self,
+		frames: usize,
+		config: &Config
+	) {
+		todo!()
+	}
+
+	fn seek(
+		&mut self,
+		position: usize,
+		config: &Config,
+	) {
+		todo!()
+	}
+}
+
+
+struct Envelope {
+
+}
+
+impl Node for Envelope {
+	fn get_name(&self) -> &'static str {
+		"Envelope"
+	}
+
+	fn get_inputs(&self) -> &[BusKind] {
+		// A, D, S, R, Trigger
+		&[BusKind::Control; 5]
 	}
 
 	fn render(

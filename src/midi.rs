@@ -18,6 +18,18 @@ impl MidiMessageChain {
 			}))
 		}
 	}
+
+	pub fn append_chain(&mut self, chain: Self) {
+		if chain.message.is_none() {
+			return
+		}
+		
+		if self.message.is_none() {
+			*self = chain;
+		} else if let Some(next) = &mut self.next {
+			next.append_chain(chain)
+		}
+	}
 }
 
 #[derive(Debug, Copy, Clone, Default)]
