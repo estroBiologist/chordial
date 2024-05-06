@@ -48,9 +48,6 @@ fn main() {
 	engine.load_from_file(&PathBuf::from("state.chrp"));
 	engine.playing = true;
 
-	let mut state_file = File::create("state.chrp").unwrap();
-	write!(state_file, "{engine}").unwrap();
-
 	let engine = Arc::new(Mutex::new(engine));
 	let thread_engine = engine.clone();
 

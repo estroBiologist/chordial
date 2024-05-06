@@ -99,6 +99,17 @@ impl Engine {
 		let mut current = lines.next();
 
 		while let Some(line) = current {
+			// skip comment lines
+			if let Some(';') = line.chars().next() {
+				current = lines.next();
+				continue
+			}
+			// skip empty lines
+			if line.is_empty() {
+				current = lines.next();
+				continue
+			}
+
 			let (idx, name) = line.split_at(line.find(" ").unwrap());
 
 			let name = &name[1..];

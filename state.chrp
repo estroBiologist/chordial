@@ -1,8 +1,23 @@
+;	chordial requires a chordial.sink node as node zero.
+;	this is where the engine polls audio for output, and any node output that
+;	doesn't feed into this (whether directly or indirectly) won't get polled.
+
 0 chordial.sink
 in 2.0
 
+;	parameters are lightweight, unbuffered values that nodes can use for
+;	configuration. all automatable values are represented with Control inputs,
+;	which can get computationally expensive and unwieldy if used for every value.
+
 1 chordial.sine
 param f:880
+
+;	multiple outputs can be routed to a single output (and vice versa).
+;	in this case, the engine adds the signals together 
+;	(whether audio, control, or midi.)
+;
+;	the x.y notation refers to `node.output`, so `in 1.0` means:
+;	"output 0 of node 1 is connected to this input"
 
 2 chordial.amplify
 in 1.0 4.0
@@ -19,6 +34,8 @@ in 7.0
 in 8.0
 in 9.0
 in 3.0
+
+;	i wanna add default values for control inputs but this works for now lol
 
 6 chordial.control_value
 param f:0
