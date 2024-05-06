@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{Buffer, BufferAccess, BusKind, Envelope, Gain, Node, NodeInstance, OutputRef, Sine, Sink, TimelineUnit, Trigger, BEAT_DIVISIONS}, param::ParamValue};
+use crate::{node::{Amplify, Buffer, BufferAccess, BusKind, Envelope, Gain, Node, NodeInstance, OutputRef, Sine, Sink, TimelineUnit, Trigger, BEAT_DIVISIONS}, param::ParamValue};
 
 
 pub struct Config {
@@ -73,6 +73,7 @@ impl Engine {
 			dbg_process_time: 0f32,
 		};
 
+		engine.register("chordial.amplify", || Box::new(Amplify));
 		engine.register("chordial.sink", || Box::new(Sink));
 		engine.register("chordial.sine", || Box::new(Sine::new(440.0)));
 		engine.register("chordial.gain", || Box::new(Gain { gain: 0.0 }));

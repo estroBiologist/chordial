@@ -158,7 +158,6 @@ impl<T: Node> NodeUtil for T {
 		instance: &NodeInstance,
 		engine: &Engine
 	) {
-
 		let refs = &instance.inputs[input];
 
 		let mut access = refs.1.write().unwrap();
@@ -678,6 +677,65 @@ impl Effect for Gain {
 		"Gain"
 	}
 }
+
+pub struct Amplify;
+
+impl Node for Amplify {
+	fn get_name(&self) -> &'static str {
+		"Amplify"
+	}
+
+	fn render(
+		&self,
+		_output: usize,
+		mut buffer: BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	) {
+		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
+
+		let Some(amp_buf) = self.poll_input(1, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let BufferAccess::Audio(audio) = buffer else {
+			panic!()
+		};
+
+		let Buffer::Control(amp) = &*amp_buf else {
+			panic!()
+		};
+
+		audio
+			.iter_mut()
+			.zip(amp.iter().copied())
+			.for_each(|(a, b)| {
+				a.0[0] *= b;
+				a.0[1] *= b;
+			})
+	}
+
+	fn advance(&mut self, _: usize, _: &Config) {}
+
+	fn seek(&mut self, _: usize, _: &Config) {}
+
+	fn get_inputs(&self) -> &[BusKind] {
+		&[BusKind::Audio, BusKind::Control]
+	}
+
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Audio]
+	}
+
+	fn get_input_names(&self) -> &'static [&'static str] {
+		&["in", "amp"]
+	}
+
+	fn get_output_names(&self) -> &'static [&'static str] {
+		&["out"]
+	}
+}
+
 
 pub struct Trigger {
 	pub node_pos: TimelineUnit,
