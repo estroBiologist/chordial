@@ -12,9 +12,8 @@ in 2.0
 1 chordial.sine
 param f:880
 
-;	multiple outputs can be routed to a single output (and vice versa).
-;	in this case, the engine adds the signals together 
-;	(whether audio, control, or midi.)
+;	multiple outputs can be routed to a single output (and vice versa). in this case,
+;	the engine adds the signals together (whether audio, control, or midi.)
 ;
 ;	the x.y notation refers to `node.output`, so `in 1.0` means:
 ;	"output 0 of node 1 is connected to this input"
@@ -23,10 +22,22 @@ param f:880
 in 1.0 4.0
 in 5.0
 
+;	node IDs are assigned consecutively, and are not re-used; if you delete a node,
+;	that node's ID will never get reassigned to a new node. the underlying counter
+;	for this is a `usize`, but if you manage to make more total nodes than you have
+;	memory locations on your CPU, the overflow crash is the least of your problems.
+
 3 chordial.trigger
+
+;	oh, by the way, comments like these are only allowed at the start of a line.
+;	didn't wanna accidentally screw up any future string parameter parsing lol
 
 4 chordial.sine
 param f:554.37
+
+;	node constructors (see Engine::new()) are quasi-namespaced: there's no real
+;	enforcement of the `package.node` naming scheme (yet), but chordial-front
+;	uses it for grouping the constructors in the Browser view, so better stick to it
 
 5 chordial.envelope
 in 6.0
