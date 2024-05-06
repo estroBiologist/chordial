@@ -78,6 +78,14 @@ pub trait NodeUtil {
 		instance: &'buf NodeInstance,
 		engine: &'buf Engine
 	) -> Option<RwLockReadGuard<'buf, Buffer>>;
+
+	fn poll_input_into_buffer(
+		&self,
+		input: usize,
+		buffer: &mut BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	);
 }
 
 impl<T: Node> NodeUtil for T {
@@ -91,8 +99,6 @@ impl<T: Node> NodeUtil for T {
 		let refs = &instance.inputs[input];
 
 		if refs.0.len() < 2 {
-			assert!(instance.inputs[input].0.len() < 2);
-			
 			let [output_ref] = instance.inputs[input].0.as_slice() else {
 				return None
 			};
@@ -143,6 +149,59 @@ impl<T: Node> NodeUtil for T {
 
 			Some(refs.1.read().unwrap())
 		}
+	}
+
+	fn poll_input_into_buffer(
+		&self,
+		input: usize,
+		mut buffer: &mut BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	) {
+
+		let refs = &instance.inputs[input];
+
+		let mut access = refs.1.write().unwrap();
+
+		for output_ref in &refs.0 {
+			let buf = &*engine.poll_node_output(output_ref, buffer.len());
+			
+			if access.len() != buffer.len() {
+				if access.len() == 0 {
+					*access = Buffer::from_bus_kind(buf.get_bus_kind());
+				}
+
+				access.resize(buffer.len());
+			}
+
+			match (&mut buffer, buf) {
+				(BufferAccess::Audio(access), Buffer::Audio(buf)) => {
+					access
+						.iter_mut()
+						.zip(buf)
+						.for_each(|(a, b)| *a += *b);
+						
+				}
+
+				(BufferAccess::Midi(access), Buffer::Midi(buf)) => {
+					access
+						.iter_mut()
+						.zip(buf)
+						.for_each(|(a, b)| a.append_chain(b.clone()))
+				}
+
+				(BufferAccess::Control(access), Buffer::Control(buf)) => {
+					access
+						.iter_mut()
+						.zip(buf)
+						.for_each(|(a, b)| *a += *b);
+				}
+
+				_ => panic!(),
+			}
+		}
+		
+		drop(access);
 	}
 }
 
@@ -300,7 +359,6 @@ impl Buffer {
 			Buffer::Midi(buf) => buf.resize(len, MidiMessageChain::default()),
 			Buffer::Control(buf) => buf.resize(len, 0.0),
 		}
-
 	}
 }
 
@@ -318,6 +376,24 @@ impl<'buf> BufferAccess<'buf> {
 			BufferAccess::Control(buf) => buf.len(),
 		}
 	}
+
+	pub fn get_bus_kind(&self) -> BusKind {
+		match self {
+			BufferAccess::Audio(_) => BusKind::Audio,
+			BufferAccess::Control(_) => BusKind::Control,
+			BufferAccess::Midi(_) => BusKind::Midi,
+		}
+	}
+
+	pub fn clear(&mut self) {
+		match self {
+			BufferAccess::Audio(buf) => buf.fill(Frame([0f32; 2])),
+			BufferAccess::Control(buf) => buf.fill(0f32),
+			BufferAccess::Midi(buf) => buf.fill(MidiMessageChain::default()),
+		}
+	}
+
+	
 }
 
 pub trait Effect: Send {
@@ -370,18 +446,7 @@ impl<T: Effect + 'static> Node for T {
 	fn seek(&mut self, _: usize, _: &Config) { }
 
 	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		let Some(buf) = self.poll_input(0, buffer.len(), instance, engine) else {
-			return
-		};
-
-		let (BufferAccess::Audio(output), Buffer::Audio(input)) = (&mut buffer, &*buf) else {
-			panic!()
-		};
-
-		output.copy_from_slice(&input);
-		
-		drop(buf);
-
+		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
 		self.render_effect(buffer);
 	}
 
@@ -408,15 +473,7 @@ impl Node for Sink {
 	}
 
 	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		let Some(buf) = self.poll_input(0, buffer.len(), instance, engine) else {
-			return
-		};
-
-		let (BufferAccess::Audio(output), Buffer::Audio(input)) = (&mut buffer, &*buf) else {
-			panic!()
-		};
-
-		output.copy_from_slice(input);
+		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
 	}
 
 	fn advance(&mut self, _: usize, _: &Config) { }

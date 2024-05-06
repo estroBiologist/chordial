@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::Debug, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
+use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
 
 use crate::{node::{Buffer, BufferAccess, BusKind, Envelope, Gain, Node, NodeInstance, OutputRef, Sine, Sink, TimelineUnit, Trigger, BEAT_DIVISIONS}, param::ParamValue};
 
@@ -289,6 +289,42 @@ impl Engine {
 
 	pub fn constructors(&self) -> impl Iterator<Item = &str> {
 		self.constructors.keys().copied()
+	}
+
+	pub fn get_debug_info(&self) -> String {
+		let mut result = String::new();
+
+		for node in &self.nodes {
+			writeln!(result, "node {}:", node.0).unwrap();
+			writeln!(result, "  id:\t{}", node.1.id).unwrap();
+			writeln!(result, "  name:\t{}", node.1.node.get_name()).unwrap();
+			
+			for i in 0..node.1.inputs.len() {
+				let input = &node.1.inputs[i];
+
+				writeln!(result, "  input {}:", i).unwrap();
+				
+				for out_ref in &input.0 {
+					writeln!(result, "    {}.{}", out_ref.node, out_ref.output).unwrap();
+				}
+
+				let buf = input.1.read().unwrap();
+
+				writeln!(result, "    buffer len: {}", buf.len()).unwrap();
+			}
+
+			for i in 0..node.1.outputs.len() {
+				let output = &node.1.outputs[i];
+
+				writeln!(result, "  output {}:", i).unwrap();
+
+				let buf = output.read().unwrap();
+
+				writeln!(result, "    buffer len: {}", buf.len()).unwrap();
+			}
+		}
+
+		result
 	}
 }
 
