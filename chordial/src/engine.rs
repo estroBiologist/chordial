@@ -25,6 +25,9 @@ pub struct Engine {
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
 	position: usize,
+	
+	pub enable_buffer_readback: bool,
+	pub buffer_readback: Vec<Frame>,
 
 	pub dbg_buffer_size: u32,
 	pub dbg_buffer_time: f32,
@@ -68,6 +71,8 @@ impl Engine {
 			},
 			position: 0,
 			playing: false,
+			enable_buffer_readback: false,
+			buffer_readback: vec![],
 			dbg_buffer_size: 0u32,
 			dbg_buffer_time: 0f32,
 			dbg_process_time: 0f32,
@@ -196,6 +201,12 @@ impl Engine {
 
 		if !self.playing {
 			buffer.fill(Frame([0f32; 2]));
+			
+			if self.enable_buffer_readback {
+				self.buffer_readback.resize(buffer.len(), Frame([0f32; 2]));
+				self.buffer_readback.fill(Frame([0f32; 2]));
+			}
+
 			return
 		}
 
@@ -213,6 +224,11 @@ impl Engine {
 		self.dbg_process_time = (Instant::now() - start).as_secs_f32();
 		self.dbg_buffer_time = buffer.len() as f32 / self.config.sample_rate as f32;
 		self.dbg_buffer_size = buffer.len() as u32;
+
+		if self.enable_buffer_readback {
+			self.buffer_readback.resize(buffer.len(), Frame([0f32; 2]));
+			self.buffer_readback.copy_from_slice(&buffer);
+		}
 	}
 
 	pub fn seek(&mut self, position: usize) {
