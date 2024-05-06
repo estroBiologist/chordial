@@ -1,6 +1,6 @@
-use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
+use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Engine, Config, Frame}, util::db_to_factor, midi::{MidiMessageChain, MidiNoteDesc}, adsr::EnvelopeDepr, param::{Parameter, ParamValue, ParamKind}};
+use crate::{adsr::EnvelopeDepr, engine::{Config, Engine, Frame}, midi::{MidiMessageChain, MidiNoteDesc}, param::{ParamKind, ParamValue, Parameter}, util::{self, db_to_factor}};
 
 pub trait Node: Send + Any {
 	fn get_inputs(&self) -> &[BusKind] { &[] }
@@ -535,7 +535,6 @@ pub struct Sine {
 	pos: usize,
 	rate: f64,
 	start: AtomicUsize,
-	len: f64,
 }
 
 impl Sine {
@@ -544,14 +543,13 @@ impl Sine {
 			pos: 0,
 			rate,
 			start: AtomicUsize::new(std::usize::MAX),
-			len: 1.0,
 		}
 	}
 }
 
 impl Node for Sine {
 	fn get_inputs(&self) -> &[BusKind] {
-		&[BusKind::Control]
+		&[]
 	}
 
 	fn get_outputs(&self) -> &[BusKind] {
@@ -570,17 +568,8 @@ impl Node for Sine {
 		&["out"]
 	}
 
-	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
+	fn render(&self, _: usize, buffer: BufferAccess, _instance: &NodeInstance, engine: &Engine) {
 		let BufferAccess::Audio(buffer) = buffer else {
-			panic!()
-		};
-		
-		let Some(input_buf) = self.poll_input(0, buffer.len(), instance, engine) else {
-			return
-		};
-
-
-		let Buffer::Control(input_buf) = &*input_buf else {
 			panic!()
 		};
 		
@@ -588,19 +577,9 @@ impl Node for Sine {
 			.iter_mut()
 			.enumerate()
 			.for_each(|(i, f)| {
-				if input_buf[i] > 0.5 {
-					self.start.store(self.pos + i, Ordering::Release)
-				}
-
 				let time = (self.pos + i) as f64 / engine.config.sample_rate as f64;
-				let start = self.start.load(Ordering::Acquire);
-
-				if start < std::usize::MAX {
-					let amp = 1.0 - (time - start as f64 / engine.config.sample_rate as f64 * self.len).clamp(0.0, 1.0);
-
-					f.0[0] = ((std::f64::consts::TAU * time * self.rate).sin() * amp) as f32;
-					f.0[1] = ((std::f64::consts::TAU * time * self.rate).sin() * amp) as f32;
-				}
+				f.0[0] = (std::f64::consts::TAU * time * self.rate).sin() as f32;
+				f.0[1] = (std::f64::consts::TAU * time * self.rate).sin() as f32;
 			});
 	}
 
@@ -631,6 +610,207 @@ impl Node for Sine {
 		};
 
 		self.rate = *val;
+	}
+}
+
+pub struct Envelope {
+	pos: usize,
+	start: AtomicUsize,
+	end: AtomicUsize,
+	active: AtomicBool,
+}
+
+impl Envelope {
+	pub fn new() -> Self {
+		Envelope {
+			pos: 0,
+			start: AtomicUsize::new(usize::MAX),
+			end: AtomicUsize::new(usize::MAX),
+			active: AtomicBool::new(false),
+		}
+	}
+
+	pub fn get_gain_released(
+		atk: f32,
+		dec: f32,
+		sus: f32,
+		rel: f32,
+		start_time: f32,
+		release_time: f32,
+		current_time: f32
+	) -> f32 {
+		let gain = Self::get_gain(
+			atk, dec, sus, rel,
+			start_time,
+			release_time
+		);
+
+		let time = current_time - release_time;
+		
+		if time > rel {
+			return 0.0
+		}
+		
+		gain * util::inverse_lerp(rel, 0.0, time)
+	}
+
+	pub fn get_gain(
+		atk: f32,
+		dec: f32,
+		sus: f32,
+		_rel: f32,
+		start_time: f32,
+		current_time: f32
+	) -> f32 {
+		let mut time = current_time - start_time;
+		
+		if time < atk {
+			return util::inverse_lerp(0.0, atk, time)
+		}
+
+		time -= atk;
+
+		if time < dec {
+			let t = util::inverse_lerp(0.0, dec, time);
+			return util::lerp(0.0, sus, t)
+		}
+
+		sus
+	}
+}
+
+impl Node for Envelope {
+	fn get_name(&self) -> &'static str {
+		"Envelope"
+	}
+
+	fn get_inputs(&self) -> &[BusKind] {
+		// A, D, S, R, Trigger
+		&[BusKind::Control; 5]
+	}
+
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Control]
+	}
+
+	fn get_input_names(&self) -> &'static [&'static str] {
+		&["atk", "dec", "sus", "rel", "trig"]
+	}
+
+	fn get_output_names(&self) -> &'static [&'static str] {
+		&["amp"]
+	}
+
+	fn render(
+		&self,
+		_output: usize,
+		buffer: BufferAccess,
+		instance: &NodeInstance,
+		engine: &Engine
+	) {
+		let BufferAccess::Control(buffer) = buffer else {
+			panic!()
+		};
+
+		let Some(atk_buf) = self.poll_input(0, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let Some(dec_buf) = self.poll_input(1, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let Some(sus_buf) = self.poll_input(2, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let Some(rel_buf) = self.poll_input(3, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let Some(trig_buf) = self.poll_input(4, buffer.len(), instance, engine) else {
+			return
+		};
+
+		let Buffer::Control(atk_buf) = &*atk_buf else {
+			panic!()
+		};
+
+		let Buffer::Control(dec_buf) = &*dec_buf else {
+			panic!()
+		};
+
+		let Buffer::Control(sus_buf) = &*sus_buf else {
+			panic!()
+		};
+
+		let Buffer::Control(rel_buf) = &*rel_buf else {
+			panic!()
+		};
+		
+		let Buffer::Control(trig_buf) = &*trig_buf else {
+			panic!()
+		};
+		
+		buffer
+			.iter_mut()
+			.enumerate()
+			.for_each(|(i, f)| {
+				let mut active = self.active.load(Ordering::Acquire);
+
+				if !active && trig_buf[i] >= 0.5 {
+					self.start.store(self.pos + i, Ordering::Release);
+					self.active.store(true, Ordering::Release);
+					active = true;
+
+				} else if active && trig_buf[i] < 0.5 {
+					self.end.store(self.pos + i, Ordering::Release);
+					self.active.store(false, Ordering::Release);
+					active = false;
+				}
+				
+				let start = self.start.load(Ordering::Acquire);
+
+				if self.pos + i < start {
+					return
+				}
+
+				let start_secs = start as f32 / engine.config.sample_rate as f32;
+				let time_secs = (self.pos + i) as f32 / engine.config.sample_rate as f32;
+				
+				if active {
+					*f = Self::get_gain(
+						atk_buf[i], dec_buf[i], sus_buf[i], rel_buf[i],
+						start_secs,
+						time_secs
+					);
+				} else {
+					let end_secs = self.end.load(Ordering::Acquire) as f32 / engine.config.sample_rate as f32;
+
+					*f = Self::get_gain_released(
+						atk_buf[i], dec_buf[i], sus_buf[i], rel_buf[i],
+						start_secs,
+						end_secs,
+						time_secs
+					);
+				}
+			})
+	}
+
+	fn advance(
+		&mut self,
+		frames: usize,
+		_config: &Config
+	) {
+		self.pos += frames;
+	}
+
+	fn seek(
+		&mut self,
+		position: usize,
+		_config: &Config,
+	) {
+		self.pos = position;
 	}
 }
 
@@ -820,7 +1000,6 @@ impl Node for Trigger {
 struct Osc {
 	pos: usize,
 	notes: RwLock<Vec<MidiNoteDesc>>,
-	envelope: EnvelopeDepr,
 }
 
 impl Node for Osc {
@@ -863,56 +1042,71 @@ impl Node for Osc {
 	}
 }
 
-
-pub struct Envelope {
-
+pub struct ControlValue {
+	pub value: f32,
 }
 
-impl Node for Envelope {
+impl Node for ControlValue {
 	fn get_name(&self) -> &'static str {
-		"Envelope"
+		"Control Value"
 	}
 
+	fn render(
+			&self,
+			_output: usize,
+			buffer: BufferAccess,
+			_instance: &NodeInstance,
+			_engine: &Engine
+		) {
+		let BufferAccess::Control(control) = buffer else {
+			return
+		};
+
+		control.fill(self.value);
+	}
+
+	fn advance(
+		&mut self,
+		_frames: usize,
+		_config: &Config
+	) { }
+
+	fn seek(
+		&mut self,
+		_position: usize,
+		_config: &Config,
+	) { }
+
 	fn get_inputs(&self) -> &[BusKind] {
-		// A, D, S, R, Trigger
-		&[BusKind::Control; 5]
+		&[]
 	}
 
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Control]
 	}
 
-	fn get_input_names(&self) -> &'static [&'static str] {
-		&["atk", "dec", "sus", "rel", "trig"]
-	}
-
 	fn get_output_names(&self) -> &'static [&'static str] {
-		&["amp"]
+		&["out"]
 	}
 
-	fn render(
-		&self,
-		output: usize,
-		buffer: BufferAccess,
-		instance: &NodeInstance,
-		engine: &Engine
-	) {
-		
+	fn get_params(&self) -> &[Parameter] {
+		&[
+			Parameter {
+				kind: ParamKind::Float,
+				text: "value",
+			}
+		]
 	}
 
-	fn advance(
-		&mut self,
-		frames: usize,
-		config: &Config
-	) {
-		
+	fn get_param_default_value(&self, _param: usize) -> Option<ParamValue> {
+		Some(ParamValue::Float(0.0))
 	}
 
-	fn seek(
-		&mut self,
-		position: usize,
-		config: &Config,
-	) {
-		
+	fn param_updated(&mut self, _param: usize, value: &ParamValue) {
+		let ParamValue::Float(value) = value else {
+			panic!()
+		};
+
+		self.value = *value as f32;
 	}
 }

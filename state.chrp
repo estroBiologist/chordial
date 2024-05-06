@@ -2,16 +2,32 @@
 in 2.0
 
 1 chordial.sine
-in 3.0
 param f:880
 
-2 chordial.gain
+2 chordial.amplify
 in 1.0 4.0
-param f:-20
+in 5.0
 
 3 chordial.trigger
 
 4 chordial.sine
-in 3.0
 param f:554.37
 
+5 chordial.envelope
+in 6.0
+in 7.0
+in 8.0
+in 9.0
+in 3.0
+
+6 chordial.control_value
+param f:0.0
+
+7 chordial.control_value
+param f:0.0
+
+8 chordial.control_value
+param f:1.0
+
+9 chordial.control_value
+param f:1.0
