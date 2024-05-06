@@ -741,7 +741,7 @@ impl Node for Osc {
 }
 
 
-struct Envelope {
+pub struct Envelope {
 
 }
 
@@ -755,6 +755,18 @@ impl Node for Envelope {
 		&[BusKind::Control; 5]
 	}
 
+	fn get_outputs(&self) -> &[BusKind] {
+		&[BusKind::Control]
+	}
+
+	fn get_input_names(&self) -> &'static [&'static str] {
+		&["atk", "dec", "sus", "rel", "trig"]
+	}
+
+	fn get_output_names(&self) -> &'static [&'static str] {
+		&["amp"]
+	}
+
 	fn render(
 		&self,
 		output: usize,
@@ -762,7 +774,7 @@ impl Node for Envelope {
 		instance: &NodeInstance,
 		engine: &Engine
 	) {
-		todo!()
+		
 	}
 
 	fn advance(
@@ -770,7 +782,7 @@ impl Node for Envelope {
 		frames: usize,
 		config: &Config
 	) {
-		todo!()
+		
 	}
 
 	fn seek(
@@ -778,6 +790,6 @@ impl Node for Envelope {
 		position: usize,
 		config: &Config,
 	) {
-		todo!()
+		
 	}
 }
