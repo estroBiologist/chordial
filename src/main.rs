@@ -39,7 +39,7 @@ fn main() {
 
 	let config = StreamConfig {
 		channels: 2,
-		sample_rate: SampleRate(44100),
+		sample_rate: SampleRate(48000),
 		buffer_size: cpal::BufferSize::Fixed(128),
 	};
 

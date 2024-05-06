@@ -21,13 +21,14 @@ in 9.0
 in 3.0
 
 6 chordial.control_value
-param f:0.0
+param f:0
 
 7 chordial.control_value
-param f:0.0
+param f:0
 
 8 chordial.control_value
-param f:1.0
+param f:1
 
 9 chordial.control_value
-param f:1.0
+param f:1
+
