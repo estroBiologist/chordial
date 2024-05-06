@@ -310,7 +310,7 @@ impl Engine {
 
 				let buf = input.1.read().unwrap();
 
-				writeln!(result, "    buffer len: {}", buf.len()).unwrap();
+				writeln!(result, "    buffer capacity: {}", buf.capacity()).unwrap();
 			}
 
 			for i in 0..node.1.outputs.len() {
@@ -320,7 +320,7 @@ impl Engine {
 
 				let buf = output.read().unwrap();
 
-				writeln!(result, "    buffer len: {}", buf.len()).unwrap();
+				writeln!(result, "    buffer capacity: {}", buf.capacity()).unwrap();
 			}
 		}
 
