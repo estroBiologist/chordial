@@ -323,7 +323,7 @@ impl<'buf> BufferAccess<'buf> {
 pub trait Effect: Send {
 	fn render_effect(&self, buffer: BufferAccess);
 	fn advance_effect(&mut self, frames: usize, config: &Config);
-	
+
 	#[allow(unused_variables)]
 	fn param_updated(&mut self, param: usize, value: &ParamValue) { }
 
@@ -349,6 +349,14 @@ impl<T: Effect + 'static> Node for T {
 
 	fn get_outputs(&self) -> &[BusKind] {
 		&[BusKind::Audio]
+	}
+
+	fn get_input_names(&self) -> &'static [&'static str] {
+		&["in"]
+	}
+
+	fn get_output_names(&self) -> &'static [&'static str] {
+		&["out"]
 	}
 
 	fn get_name(&self) -> &'static str {
@@ -488,6 +496,14 @@ impl Node for Sine {
 
 	fn get_name(&self) -> &'static str {
 		"Sine"
+	}
+
+	fn get_input_names(&self) -> &'static [&'static str] {
+		&["trigger"]
+	}
+
+	fn get_output_names(&self) -> &'static [&'static str] {
+		&["out"]
 	}
 
 	fn render(&self, _: usize, buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
