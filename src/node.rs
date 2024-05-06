@@ -353,6 +353,14 @@ impl Buffer {
 		}
 	}
 
+	pub fn capacity(&self) -> usize {
+		match self {
+			Buffer::Audio(buf) => buf.capacity(),
+			Buffer::Midi(buf) => buf.capacity(),
+			Buffer::Control(buf) => buf.capacity(),
+		}
+	}
+
 	pub fn resize(&mut self, len: usize) {
 		match self {
 			Buffer::Audio(buf) => buf.resize(len, Frame([0.0; 2])),
