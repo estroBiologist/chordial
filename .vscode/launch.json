@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'chordial'",
+            "name": "Debug executable 'chordial-cli'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=chordial",
-                    "--package=chordial"
+                    "--bin=chordial-cli",
+                    "--package=chordial-cli"
                 ],
                 "filter": {
-                    "name": "chordial",
+                    "name": "chordial-cli",
                     "kind": "bin"
                 }
             },
@@ -25,16 +25,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'chordial'",
+            "name": "Debug unit tests in executable 'chordial-cli'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=chordial",
-                    "--package=chordial"
+                    "--bin=chordial-cli",
+                    "--package=chordial-cli"
                 ],
                 "filter": {
-                    "name": "chordial",
+                    "name": "chordial-cli",
                     "kind": "bin"
                 }
             },

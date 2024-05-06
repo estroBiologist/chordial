@@ -1,6 +1,6 @@
 use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{adsr::EnvelopeDepr, engine::{Config, Engine, Frame}, midi::{MidiMessageChain, MidiNoteDesc}, param::{ParamKind, ParamValue, Parameter}, util::{self, db_to_factor}};
+use crate::{engine::{Config, Engine, Frame}, midi::{MidiMessageChain, MidiNoteDesc}, param::{ParamKind, ParamValue, Parameter}, util::{self, db_to_factor}};
 
 pub trait Node: Send + Any {
 	fn get_inputs(&self) -> &[BusKind] { &[] }
@@ -534,7 +534,6 @@ impl Node for Source {
 pub struct Sine {
 	pos: usize,
 	rate: f64,
-	start: AtomicUsize,
 }
 
 impl Sine {
@@ -542,7 +541,6 @@ impl Sine {
 		Sine {
 			pos: 0,
 			rate,
-			start: AtomicUsize::new(std::usize::MAX),
 		}
 	}
 }
