@@ -8,3 +8,4 @@ edition = "2021"
 cpal = "0.15.2"
 wav = "1.0.0"
 chordial = { version = "0.1.0", path = "../chordial" }
+midir = "0.10.0"

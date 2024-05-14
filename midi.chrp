@@ -1,0 +1,12 @@
+0 chordial.sink
+in 1.0
+
+1 chordial.gain
+in 2.0
+param f:0
+
+2 chordial.polyosc
+in 3.0
+
+3 chordial.cli.midi-in
+param s:Komplete Kontrol - 1

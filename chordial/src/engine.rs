@@ -1,6 +1,33 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{Amplify, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Gain, Node, NodeInstance, OutputRef, Sine, Sink, TimelineUnit, Trigger, BEAT_DIVISIONS}, param::ParamValue};
+use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TimelineUnit, Trigger}, param::ParamValue};
+
+
+pub const BEAT_DIVISIONS: u32 = 24;
+
+#[derive(Copy, Clone)]
+pub struct Frame(pub [f32; 2]);
+
+impl Debug for Frame {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(&format!("({:?})", self.0))
+	}
+}
+
+impl AddAssign for Frame {
+	fn add_assign(&mut self, rhs: Self) {
+		self.0[0] += rhs.0[0];
+		self.0[1] += rhs.0[1];
+	}
+}
+
+impl Add for Frame {
+	type Output = Frame;
+
+	fn add(self, rhs: Self) -> Self::Output {
+		Frame([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1]])
+	}
+}
 
 
 pub struct Config {
@@ -34,30 +61,6 @@ pub struct Engine {
 	pub dbg_process_time: f32,
 }
 
-#[derive(Copy, Clone)]
-pub struct Frame(pub [f32; 2]);
-
-impl Debug for Frame {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.write_str(&format!("({:?})", self.0))
-	}
-}
-
-impl AddAssign for Frame {
-	fn add_assign(&mut self, rhs: Self) {
-		self.0[0] += rhs.0[0];
-		self.0[1] += rhs.0[1];
-	}
-}
-
-impl Add for Frame {
-	type Output = Frame;
-
-	fn add(self, rhs: Self) -> Self::Output {
-		Frame([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1]])
-	}
-}
-
 impl Engine {
 	pub fn new(sample_rate: u32) -> Self {
 		let mut engine = Engine { 
@@ -85,6 +88,9 @@ impl Engine {
 		engine.register("chordial.trigger", || Box::new(Trigger::new()));
 		engine.register("chordial.envelope", || Box::new(Envelope::new()));
 		engine.register("chordial.control_value", || Box::new(ControlValue { value: 0.0f32 }));
+		engine.register("chordial.osc", || Box::new(Osc::new()));
+		engine.register("chordial.polyosc", || Box::new(PolyOsc::new()));
+		engine.register("chordial.midi_split", || Box::new(MidiSplit::new()));
 
 		engine.create_node("chordial.sink");
 		engine
@@ -243,12 +249,13 @@ impl Engine {
 		self.position
 	}
 
-	pub fn create_node(&mut self, name: &str) -> usize {
+	pub fn create_node(&mut self, name: &str) -> Option<usize> {
 		let Some((id, ctor)) = self.constructors.get_key_value(name) else {
-			panic!("unknown node constructor `{name}`!");
+			eprintln!("warning: unknown node constructor `{name}`, skipping");
+			return None
 		};
 
-		self.add_node_dyn(ctor(), id)
+		Some(self.add_node_dyn(ctor(), id))
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {
@@ -369,5 +376,10 @@ impl Config {
 	pub fn tl_units_to_frames(&self, timeline_unit: TimelineUnit) -> usize {
 		let beat = timeline_unit.0 as f64 / BEAT_DIVISIONS as f64;
 		(beat * self.secs_per_beat() * self.sample_rate as f64) as usize
+	}
+
+	pub fn frames_to_tl_units(&self, frames: usize) -> TimelineUnit {
+		let beat = frames as f64 / self.sample_rate as f64 / self.secs_per_beat();
+		TimelineUnit((beat * BEAT_DIVISIONS as f64) as usize)
 	}
 }

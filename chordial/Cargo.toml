@@ -5,3 +5,6 @@ edition = "2021"
 
 [lib]
 name = "chordial"
+
+[dependencies]
+smallvec = "1.13.2"

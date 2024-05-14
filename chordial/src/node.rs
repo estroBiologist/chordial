@@ -1,8 +1,13 @@
-use std::{any::Any, fmt::{Debug, Display}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
+use std::{fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Config, Engine, Frame}, midi::{MidiMessageChain, MidiNoteDesc}, param::{ParamKind, ParamValue, Parameter}, util::{self, db_to_factor}};
+use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, util::{inverse_lerp, lerp}};
 
-pub trait Node: Send + Any {
+pub mod effect;
+pub mod io;
+pub mod osc;
+pub mod timeline;
+
+pub trait Node: Send {
 	fn get_inputs(&self) -> &[BusKind] { &[] }
 	fn get_outputs(&self) -> &[BusKind] { &[] }
 
@@ -27,17 +32,11 @@ pub trait Node: Send + Any {
 		engine: &Engine
 	);
 	
-	fn advance(
-		&mut self,
-		frames: usize,
-		config: &Config
-	);
+	#[allow(unused_variables)]
+	fn advance(&mut self, frames: usize, config: &Config) { }
 
-	fn seek(
-		&mut self,
-		position: usize,
-		config: &Config,
-	);
+	#[allow(unused_variables)]
+	fn seek(&mut self, position: usize, config: &Config) { }
 
 	// Timeline functionality
 	//
@@ -131,7 +130,7 @@ impl<T: Node> NodeUtil for T {
 						access
 							.iter_mut()
 							.zip(buf)
-							.for_each(|(a, b)| a.append_chain(b.clone()))
+							.for_each(|(a, b)| a.append(&mut b.clone()))
 					}
 	
 					(Buffer::Control(access), Buffer::Control(buf)) => {
@@ -186,7 +185,7 @@ impl<T: Node> NodeUtil for T {
 					access
 						.iter_mut()
 						.zip(buf)
-						.for_each(|(a, b)| a.append_chain(b.clone()))
+						.for_each(|(a, b)| a.append(&mut b.clone()))
 				}
 
 				(BufferAccess::Control(access), Buffer::Control(buf)) => {
@@ -204,14 +203,20 @@ impl<T: Node> NodeUtil for T {
 	}
 }
 
-pub const BEAT_DIVISIONS: u32 = 24;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TimelineUnit(pub usize);
 
 impl Display for TimelineUnit {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.0)
+	}
+}
+
+impl Add for TimelineUnit {
+	type Output = TimelineUnit;
+	
+	fn add(self, rhs: Self) -> Self::Output {
+		TimelineUnit(self.0 + rhs.0)
 	}
 }
 
@@ -367,6 +372,54 @@ impl Buffer {
 			Buffer::Control(buf) => buf.resize(len, 0.0),
 		}
 	}
+	
+	pub fn audio(&self) -> Option<&[Frame]> {
+		let Buffer::Audio(audio) = self else {
+			panic!("called 'unwrap_audio' on a non-Audio Buffer!")
+		};
+
+		Some(audio)
+	}
+	
+	pub fn midi(&self) -> Option<&[MidiMessageChain]> {
+		let Buffer::Midi(midi) = self else {
+			panic!("called 'unwrap_midi' on a non-Midi Buffer!")
+		};
+		
+		Some(midi)
+	}
+
+	pub fn control(&self) -> Option<&[f32]> {
+		let Buffer::Control(control) = self else {
+			return None
+		};
+		
+		Some(control)
+	}
+
+	pub fn audio_mut(&mut self) -> Option<&mut [Frame]> {
+		let Buffer::Audio(audio) = self else {
+			return None
+		};
+
+		Some(audio)
+	}
+	
+	pub fn midi_mut(&mut self) -> Option<&mut [MidiMessageChain]> {
+		let Buffer::Midi(midi) = self else {
+			return None
+		};
+		
+		Some(midi)
+	}
+
+	pub fn control_mut(&mut self) -> Option<&mut [f32]> {
+		let Buffer::Control(control) = self else {
+			return None
+		};
+		
+		Some(control)
+	}
 }
 
 pub enum BufferAccess<'buf> {
@@ -400,216 +453,55 @@ impl<'buf> BufferAccess<'buf> {
 		}
 	}
 
-	
-}
-
-pub trait Effect: Send {
-	fn render_effect(&self, buffer: BufferAccess);
-	fn advance_effect(&mut self, frames: usize, config: &Config);
-
-	#[allow(unused_variables)]
-	fn param_updated(&mut self, param: usize, value: &ParamValue) { }
-
-	#[allow(unused_variables)]
-	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> { None }
-
-	fn get_params(&self) -> &[Parameter] { &[] }
-
-	fn get_name(&self) -> &'static str;
-}
-
-pub trait Generator {
-
-}
-
-pub struct Source;
-pub struct Sink;
-
-impl<T: Effect + 'static> Node for T {
-	fn get_inputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_outputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_input_names(&self) -> &'static [&'static str] {
-		&["in"]
-	}
-
-	fn get_output_names(&self) -> &'static [&'static str] {
-		&["out"]
-	}
-
-	fn get_name(&self) -> &'static str {
-		Effect::get_name(self)
-	}
-
-	fn advance(&mut self, frames: usize, config: &Config) {
-		self.advance_effect(frames, config);
-	}
-	
-	fn seek(&mut self, _: usize, _: &Config) { }
-
-	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
-		self.render_effect(buffer);
-	}
-
-	fn get_param_default_value(&self, param: usize) -> Option<ParamValue> {
-		Effect::get_param_default_value(self, param)
-	}
-
-	fn get_params(&self) -> &[Parameter] {
-		Effect::get_params(self)
-	}
-
-	fn param_updated(&mut self, param: usize, value: &ParamValue) {
-		Effect::param_updated(self, param, value)
-	}
-}
-
-impl Node for Sink {
-	fn get_inputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_name(&self) -> &'static str {
-		"Sink"
-	}
-
-	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
-		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
-	}
-
-	fn advance(&mut self, _: usize, _: &Config) { }
-
-	fn seek(&mut self, _: usize, _: &Config) { }
-}
-
-impl Node for Source {
-	fn get_outputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-	
-	fn get_name(&self) -> &'static str {
-		"Source"
-	}
-	
-	fn advance(&mut self, _: usize, _: &Config) { }
-	
-	fn seek(&mut self, _: usize, _: &Config) { }
-
-	fn render(&self, _: usize, buffer: BufferAccess, _: &NodeInstance, _: &Engine) {
-		let BufferAccess::Audio(buffer) = buffer else {
-			panic!()
+	pub fn audio(&self) -> Option<&[Frame]> {
+		let BufferAccess::Audio(audio) = self else {
+			panic!("called 'unwrap_audio' on a non-Audio Buffer!")
 		};
 
-		buffer.fill(Frame([1.0f32, 0.0f32]));
+		Some(audio)
 	}
-
-	fn get_params(&self) -> &[Parameter] { 
-		&[
-			Parameter {
-				kind: ParamKind::String,
-				text: "input",
-			}
-		]
-	}
-
-	fn param_updated(&mut self, param: usize, value: &ParamValue) {
-		assert!(param == 0);
-
-		let ParamValue::String(string) = value else {
-			panic!()
-		};
-
-		if string != "" {
-			todo!()
-		}
-	}
-}
-
-pub struct Sine {
-	pos: usize,
-	rate: f64,
-}
-
-impl Sine {
-	pub fn new(rate: f64) -> Self {
-		Sine {
-			pos: 0,
-			rate,
-		}
-	}
-}
-
-impl Node for Sine {
-	fn get_inputs(&self) -> &[BusKind] {
-		&[]
-	}
-
-	fn get_outputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_name(&self) -> &'static str {
-		"Sine"
-	}
-
-	fn get_input_names(&self) -> &'static [&'static str] {
-		&["trigger"]
-	}
-
-	fn get_output_names(&self) -> &'static [&'static str] {
-		&["out"]
-	}
-
-	fn render(&self, _: usize, buffer: BufferAccess, _instance: &NodeInstance, engine: &Engine) {
-		let BufferAccess::Audio(buffer) = buffer else {
-			panic!()
+	
+	pub fn midi(&self) -> Option<&[MidiMessageChain]> {
+		let BufferAccess::Midi(midi) = self else {
+			panic!("called 'unwrap_midi' on a non-Midi Buffer!")
 		};
 		
-		buffer
-			.iter_mut()
-			.enumerate()
-			.for_each(|(i, f)| {
-				let time = (self.pos + i) as f64 / engine.config.sample_rate as f64;
-				f.0[0] = (std::f64::consts::TAU * time * self.rate).sin() as f32;
-				f.0[1] = (std::f64::consts::TAU * time * self.rate).sin() as f32;
-			});
+		Some(midi)
 	}
 
-	fn advance(&mut self, frames: usize, _config: &Config) {
-		self.pos += frames;
+	pub fn control(&self) -> Option<&[f32]> {
+		let BufferAccess::Control(control) = self else {
+			return None
+		};
+		
+		Some(control)
 	}
 
-	fn seek(&mut self, position: usize, _config: &Config) {
-		self.pos = position;
-	}
-
-	fn get_params(&self) -> &[Parameter] {
-		&[
-			Parameter {
-				kind: ParamKind::Float,
-				text: "freq",
-			}
-		]
-	}
-	
-	fn get_param_default_value(&self, _: usize) -> Option<ParamValue> {
-		Some(ParamValue::Float(440.0))
-	}
-
-	fn param_updated(&mut self, _: usize, value: &ParamValue) {
-		let ParamValue::Float(val) = value else {
-			panic!()
+	pub fn audio_mut(&mut self) -> Option<&mut [Frame]> {
+		let BufferAccess::Audio(audio) = self else {
+			return None
 		};
 
-		self.rate = *val;
+		Some(audio)
+	}
+	
+	pub fn midi_mut(&mut self) -> Option<&mut [MidiMessageChain]> {
+		let BufferAccess::Midi(midi) = self else {
+			return None
+		};
+		
+		Some(midi)
+	}
+
+	pub fn control_mut(&mut self) -> Option<&mut [f32]> {
+		let BufferAccess::Control(control) = self else {
+			return None
+		};
+		
+		Some(control)
 	}
 }
+
 
 pub struct Envelope {
 	pos: usize,
@@ -649,7 +541,7 @@ impl Envelope {
 			return 0.0
 		}
 		
-		gain * util::inverse_lerp(rel, 0.0, time)
+		gain * inverse_lerp(rel, 0.0, time)
 	}
 
 	pub fn get_gain(
@@ -663,14 +555,14 @@ impl Envelope {
 		let mut time = current_time - start_time;
 		
 		if time < atk {
-			return util::inverse_lerp(0.0, atk, time)
+			return inverse_lerp(0.0, atk, time)
 		}
 
 		time -= atk;
 
 		if time < dec {
-			let t = util::inverse_lerp(0.0, dec, time);
-			return util::lerp(0.0, sus, t)
+			let t = inverse_lerp(0.0, dec, time);
+			return lerp(0.0, sus, t)
 		}
 
 		sus
@@ -702,14 +594,10 @@ impl Node for Envelope {
 	fn render(
 		&self,
 		_output: usize,
-		buffer: BufferAccess,
+		mut buffer: BufferAccess,
 		instance: &NodeInstance,
 		engine: &Engine
 	) {
-		let BufferAccess::Control(buffer) = buffer else {
-			panic!()
-		};
-
 		let Some(atk_buf) = self.poll_input(0, buffer.len(), instance, engine) else {
 			return
 		};
@@ -730,25 +618,12 @@ impl Node for Envelope {
 			return
 		};
 
-		let Buffer::Control(atk_buf) = &*atk_buf else {
-			panic!()
-		};
-
-		let Buffer::Control(dec_buf) = &*dec_buf else {
-			panic!()
-		};
-
-		let Buffer::Control(sus_buf) = &*sus_buf else {
-			panic!()
-		};
-
-		let Buffer::Control(rel_buf) = &*rel_buf else {
-			panic!()
-		};
-		
-		let Buffer::Control(trig_buf) = &*trig_buf else {
-			panic!()
-		};
+		let buffer = buffer.control_mut().unwrap();
+		let atk_buf = atk_buf.control().unwrap();
+		let dec_buf = dec_buf.control().unwrap();
+		let sus_buf = sus_buf.control().unwrap();
+		let rel_buf = rel_buf.control().unwrap();
+		let trig_buf = trig_buf.control().unwrap();
 		
 		buffer
 			.iter_mut()
@@ -812,107 +687,7 @@ impl Node for Envelope {
 	}
 }
 
-pub struct Gain {
-	pub gain: f32,
-}
 
-impl Effect for Gain {
-	fn render_effect(&self, buffer: BufferAccess) {
-		let BufferAccess::Audio(buffer) = buffer else {
-			panic!()
-		};
-
-		let fac = db_to_factor(self.gain);
-		
-		buffer
-			.iter_mut()
-			.for_each(|Frame([l, r])| {
-				*l *= fac;
-				*r *= fac;
-			})
-	}
-
-	fn advance_effect(&mut self, _: usize, _: &Config) { }
-
-	fn get_params(&self) -> &[Parameter] {
-		&[
-			Parameter {
-				kind: ParamKind::Float,
-				text: "gain",
-			}
-		]
-	}
-
-	fn param_updated(&mut self, _: usize, value: &ParamValue) {
-		let ParamValue::Float(val) = value else {
-			panic!()
-		};
-
-		self.gain = *val as f32;
-	}
-
-	fn get_name(&self) -> &'static str {
-		"Gain"
-	}
-}
-
-pub struct Amplify;
-
-impl Node for Amplify {
-	fn get_name(&self) -> &'static str {
-		"Amplify"
-	}
-
-	fn render(
-		&self,
-		_output: usize,
-		mut buffer: BufferAccess,
-		instance: &NodeInstance,
-		engine: &Engine
-	) {
-		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
-
-		let Some(amp_buf) = self.poll_input(1, buffer.len(), instance, engine) else {
-			return
-		};
-
-		let BufferAccess::Audio(audio) = buffer else {
-			panic!()
-		};
-
-		let Buffer::Control(amp) = &*amp_buf else {
-			panic!()
-		};
-
-		audio
-			.iter_mut()
-			.zip(amp.iter().copied())
-			.for_each(|(a, b)| {
-				a.0[0] *= b;
-				a.0[1] *= b;
-			})
-	}
-
-	fn advance(&mut self, _: usize, _: &Config) {}
-
-	fn seek(&mut self, _: usize, _: &Config) {}
-
-	fn get_inputs(&self) -> &[BusKind] {
-		&[BusKind::Audio, BusKind::Control]
-	}
-
-	fn get_outputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_input_names(&self) -> &'static [&'static str] {
-		&["in", "amp"]
-	}
-
-	fn get_output_names(&self) -> &'static [&'static str] {
-		&["out"]
-	}
-}
 
 
 pub struct Trigger {
@@ -941,14 +716,11 @@ impl Node for Trigger {
 	fn render(
 		&self,
 		_output: usize,
-		buffer: BufferAccess,
+		mut buffer: BufferAccess,
 		_instance: &NodeInstance,
 		engine: &Engine
 	) {
-		let BufferAccess::Control(buffer) = buffer else {
-			return
-		};
-
+		let buffer = buffer.control_mut().unwrap();
 		let node_pos_tl = engine.config.tl_units_to_frames(self.node_pos);
 		
 		if node_pos_tl >= self.tl_pos {
@@ -988,55 +760,10 @@ impl Node for Trigger {
 		self.node_pos = pos
 	}
 
-	fn set_start_offset(&mut self, offset: TimelineUnit) {
+	fn set_start_offset(&mut self, _offset: TimelineUnit) {
 	}
 
-	fn set_end_offset(&mut self, offset: TimelineUnit) {
-	}
-}
-
-struct Osc {
-	pos: usize,
-	notes: RwLock<Vec<MidiNoteDesc>>,
-}
-
-impl Node for Osc {
-	fn get_inputs(&self) -> &[BusKind] {
-		&[BusKind::Midi]
-	}
-
-	fn get_outputs(&self) -> &[BusKind] {
-		&[BusKind::Audio]
-	}
-
-	fn get_name(&self) -> &'static str {
-		"Osc"
-	}
-
-	fn render(
-		&self,
-		output: usize,
-		buffer: BufferAccess,
-		instance: &NodeInstance,
-		engine: &Engine
-	) {
-		todo!()
-	}
-
-	fn advance(
-		&mut self,
-		frames: usize,
-		config: &Config
-	) {
-		todo!()
-	}
-
-	fn seek(
-		&mut self,
-		position: usize,
-		config: &Config,
-	) {
-		todo!()
+	fn set_end_offset(&mut self, _offset: TimelineUnit) {
 	}
 }
 
