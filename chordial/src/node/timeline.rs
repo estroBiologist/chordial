@@ -1,4 +1,4 @@
-use crate::{engine::{Config, Engine}, midi::{MidiBlock, MidiMessage, MidiStatusByte, MidiStatusCode}, resource::{ResourceAccess, ResourceBuffer}};
+use crate::{engine::{Config, Engine}, midi::{MidiBlock, MidiMessage, MidiStatusByte, MidiStatusCode}, resource::{ResourceHandleDyn, ResourceHandle}};
 
 use super::{BufferAccess, BusKind, Node, NodeInstance, Step};
 
@@ -11,7 +11,7 @@ pub struct MidiClipNote {
 }
 
 pub struct MidiClip {
-	pub data: ResourceBuffer<MidiBlock>,
+	pub data: ResourceHandle<MidiBlock>,
 	pub position: Step,
 	pub start_offset: Step,
 	pub end_offset: Step,
@@ -111,7 +111,7 @@ impl Node for MidiClip {
 		]
 	}
 
-	fn get_resource(&self, resource: &str) -> &dyn ResourceAccess {
+	fn get_resource(&self, resource: &str) -> &dyn ResourceHandleDyn {
 		match resource {
 			"data" => &self.data,
 

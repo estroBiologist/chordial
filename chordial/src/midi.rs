@@ -253,6 +253,7 @@ impl PolyVoiceTracker {
 	}
 }
 
+#[derive(Copy, Clone)]
 pub struct MidiNoteDesc {
 	pub pos: Step,
 	pub len: Step,
@@ -260,6 +261,7 @@ pub struct MidiNoteDesc {
 	pub vel: u8
 }
 
+#[derive(Clone)]
 pub struct MidiBlock {
 	pub channels: [Vec<MidiNoteDesc>; 16],
 }
@@ -267,14 +269,6 @@ pub struct MidiBlock {
 impl Resource for MidiBlock {
 	fn resource_kind_id(&self) -> &'static str {
 		"MidiBlock"
-	}
-
-	fn get_action_list(&self) -> &'static [&'static str] {
-		&[
-			"add_note",
-			"remove_note",
-			"update_note",
-		]
 	}
 
 	fn apply_action(&mut self, action: &'static str, args: &[ParamValue]) {
@@ -285,6 +279,7 @@ impl Resource for MidiBlock {
 		let channel = *channel as usize;
 
 		match action {
+
 			"add_note" => {
 				let [
 					ParamValue::Int(note),

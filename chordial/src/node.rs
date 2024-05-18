@@ -1,6 +1,6 @@
 use std::{fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::ResourceAccess, util::{inverse_lerp, lerp}};
+use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::ResourceHandleDyn, util::{inverse_lerp, lerp}};
 
 pub mod effect;
 pub mod io;
@@ -49,7 +49,7 @@ pub trait Node: Send {
 	fn get_resource_names(&self) -> &'static [&'static str] { &[] }
 	
 	#[allow(unused_variables)]
-	fn get_resource(&self, name: &str) -> &dyn ResourceAccess { panic!() }
+	fn get_resource(&self, name: &str) -> &dyn ResourceHandleDyn { panic!() }
 
 
 	// Timeline functionality

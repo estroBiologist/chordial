@@ -1,14 +1,12 @@
-use std::{path::Path, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}};
+use std::{path::PathBuf, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
 use crate::{engine::Frame, param::ParamValue};
 
+use self::private::ResourceHandleSealed;
 
-pub trait Resource {
+
+pub trait Resource: Clone {
 	fn resource_kind_id(&self) -> &'static str;
-
-	fn get_action_list(&self) -> &'static [&'static str] {
-		&[]
-	}
 
 	#[allow(unused_variables)]
 	fn apply_action(&mut self, action: &'static str, args: &[ParamValue]) { }
@@ -17,24 +15,28 @@ pub trait Resource {
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> { None }
 }
 
+mod private {
+	pub trait ResourceHandleSealed {}
+}
 
-pub trait ResourceAccess {
+pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]);
 
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
-
-	fn get_action_list(&self) -> &'static [&'static str];
 	
 	fn resource_kind_id(&self) -> &'static str;
+
+	fn make_unique(&mut self);
 }
 
 
-pub struct ResourceBuffer<T: Resource + Send + Sync> {
-	data: Arc<RwLock<T>>,
-	path: Option<Arc<Path>>,
+#[derive(Clone)]
+pub struct ResourceHandle<T: Resource + Send + Sync> {
+	pub(crate) data: Arc<RwLock<T>>,
+	pub(crate) path: Arc<RwLock<Option<PathBuf>>>,
 }
 
-impl<T> ResourceBuffer<T>
+impl<T> ResourceHandle<T>
 where 
 	T: Resource + Send + Sync
 {
@@ -46,17 +48,30 @@ where
 		self.data.write().unwrap()
 	}
 
-	pub fn path(&self) -> Option<&Path> {
-		if let Some(path) = &self.path {
-			Some(path.as_ref())
+	pub fn path(&self) -> Option<PathBuf> {
+		if let Some(path) = &*self.path.read().unwrap() {
+			Some(path.clone())
 		} else {
 			None
 		}
 	}
+
+	pub fn is_external(&self) -> bool {
+		self.path.read().unwrap().is_some()
+	}
+
+	pub fn detach_from_external(&self) {
+		*self.path.write().unwrap() = None;
+	}
 }
 
 
-impl<T> ResourceAccess for ResourceBuffer<T>
+impl<T> ResourceHandleSealed for ResourceHandle<T>
+where
+	T: Resource + Send + Sync {}
+
+
+impl<T> ResourceHandleDyn for ResourceHandle<T>
 where
 	T: Resource + Send + Sync
 {
@@ -72,12 +87,15 @@ where
 		self.read().resource_kind_id()
 	}
 
-	fn get_action_list(&self) -> &'static [&'static str] {
-		self.read().get_action_list()
+	fn make_unique(&mut self) {
+		let res = Arc::new(RwLock::new(self.read().clone()));
+		
+		self.data = res;
+		self.path = Arc::default();
 	}
 }
 
-
+#[derive(Clone)]
 pub struct AudioData {
 	pub data: Vec<Frame>,
 	pub sample_rate: u32,

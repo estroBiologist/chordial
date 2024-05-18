@@ -179,7 +179,7 @@ fn main() {
 
 	let mut engine = Engine::new(config.sample_rate.0);
 
-	engine.register("chordial.cli.midi-in", || Box::new(MidiIn::new()));
+	engine.register("chordial.cli.midi-in", |_| Box::new(MidiIn::new()));
 	engine.load_from_file(&PathBuf::from("midi.chrp"));
 	engine.playing = true;
 

@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
+use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue};
+use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
 
 
 pub const BEAT_DIVISIONS: u32 = 24;
@@ -46,7 +46,7 @@ impl Config {
 	}
 }
 
-pub type NodeConstructor = Box<dyn Fn() -> Box<dyn Node> + Send>;
+pub type NodeConstructor = Box<dyn Fn(&Engine) -> Box<dyn Node> + Send>;
 
 pub struct Engine {
 	pub config: Config,
@@ -55,6 +55,7 @@ pub struct Engine {
 	nodes: BTreeMap<usize, NodeInstance>,
 	constructors: HashMap<&'static str, NodeConstructor>,
 	node_counter: usize,
+	resources: HashMap<&'static str, Vec<Box<dyn ResourceHandleDyn>>>,
 	position: usize,
 	
 	pub enable_buffer_readback: bool,
@@ -76,6 +77,7 @@ impl Engine {
 				bpm: 120.0,
 				tuning: 440.0,
 			},
+			resources: HashMap::new(),
 			position: 0,
 			playing: false,
 			enable_buffer_readback: false,
@@ -85,16 +87,16 @@ impl Engine {
 			dbg_process_time: 0f32,
 		};
 
-		engine.register("chordial.amplify", || Box::new(Amplify));
-		engine.register("chordial.sink", || Box::new(Sink));
-		engine.register("chordial.sine", || Box::new(Sine::new(440.0)));
-		engine.register("chordial.gain", || Box::new(Gain { gain: 0.0 }));
-		engine.register("chordial.trigger", || Box::new(Trigger::new()));
-		engine.register("chordial.envelope", || Box::new(Envelope::new()));
-		engine.register("chordial.control_value", || Box::new(ControlValue { value: 0.0f32 }));
-		engine.register("chordial.osc", || Box::new(Osc::new()));
-		engine.register("chordial.polyosc", || Box::new(PolyOsc::new()));
-		engine.register("chordial.midi_split", || Box::new(MidiSplit::new()));
+		engine.register("chordial.amplify", |_| Box::new(Amplify));
+		engine.register("chordial.sink", |_| Box::new(Sink));
+		engine.register("chordial.sine", |_| Box::new(Sine::new(440.0)));
+		engine.register("chordial.gain", |_| Box::new(Gain { gain: 0.0 }));
+		engine.register("chordial.trigger", |_| Box::new(Trigger::new()));
+		engine.register("chordial.envelope", |_| Box::new(Envelope::new()));
+		engine.register("chordial.control_value", |_| Box::new(ControlValue { value: 0.0f32 }));
+		engine.register("chordial.osc", |_| Box::new(Osc::new()));
+		engine.register("chordial.polyosc", |_| Box::new(PolyOsc::new()));
+		engine.register("chordial.midi_split", |_| Box::new(MidiSplit::new()));
 
 		engine.create_node("chordial.sink");
 		engine
@@ -134,7 +136,7 @@ impl Engine {
 				panic!("unknown node constructor `{name}`");
 			};
 
-			let mut node = NodeInstance::new_dyn(ctor(), id);
+			let mut node = NodeInstance::new_dyn(ctor(&self), id);
 			
 			node.inputs.clear();
 			current = lines.next();
@@ -197,7 +199,7 @@ impl Engine {
 	pub fn register(
 		&mut self, 
 		name: &'static str, 
-		ctor: impl Fn() -> Box<dyn Node> + Send + 'static
+		ctor: impl Fn(&Engine) -> Box<dyn Node> + Send + 'static
 	) {
 		if self.constructors.contains_key(name) {
 			panic!("constructor `{name}` already registered!")
@@ -259,7 +261,7 @@ impl Engine {
 			return None
 		};
 
-		Some(self.add_node_dyn(ctor(), id))
+		Some(self.add_node_dyn(ctor(&self), id))
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {
@@ -365,6 +367,35 @@ impl Engine {
 		}
 
 		result
+	}
+
+	pub fn add_resource<T>(&mut self, resource: T) -> ResourceHandle<T>
+	where
+		T: Resource + Send + Sync + 'static
+	{
+		let kind = resource.resource_kind_id();
+		let handle = ResourceHandle {
+			data: Arc::new(RwLock::new(resource)),
+			path: Arc::default(),
+		};
+
+		if let Some(existing) = self.resources.get_mut(kind) {
+			existing.push(Box::new(handle.clone()));
+		} else {
+			self.resources.insert(kind, vec![Box::new(handle.clone())]);			
+		}
+
+		handle
+	}
+
+	pub fn get_resources_by_kind(&self, kind: &'static str)
+		-> impl Iterator<Item = &Box<dyn ResourceHandleDyn>>
+	{
+		if let Some(resources) = self.resources.get(kind) {
+			resources.iter()
+		} else {
+			[].iter()
+		}
 	}
 }
 
