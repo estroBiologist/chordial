@@ -44,8 +44,6 @@ impl<T: Effect + 'static> Node for T {
 		self.advance_effect(frames, config);
 	}
 	
-	fn seek(&mut self, _: usize, _: &Config) { }
-
 	fn render(&self, _: usize, mut buffer: BufferAccess, instance: &NodeInstance, engine: &Engine) {
 		self.poll_input_into_buffer(0, &mut buffer, instance, engine);
 		self.render_effect(buffer);
@@ -140,10 +138,6 @@ impl Node for Amplify {
 				a.0[1] *= b;
 			})
 	}
-
-	fn advance(&mut self, _: usize, _: &Config) {}
-
-	fn seek(&mut self, _: usize, _: &Config) {}
 
 	fn get_inputs(&self) -> &[BusKind] {
 		&[BusKind::Audio, BusKind::Control]

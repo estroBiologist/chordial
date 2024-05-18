@@ -4,4 +4,5 @@ pub mod midi;
 pub mod module;
 pub mod node;
 pub mod param;
+pub mod resource;
 mod util;

@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use smallvec::SmallVec;
 
+use crate::{node::Step, param::ParamValue, resource::Resource};
+
 pub type MidiMessageChain = SmallVec<[MidiMessage; 4]>;
 
 const MIDI_CODE_MASK   : u8 = 0xF0;
@@ -76,7 +78,7 @@ impl MidiStatusByte {
 
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct MidiNoteDesc {
+pub struct MidiVoiceDesc {
 	pub note: u8,
 	pub velocity: u8,
 	pub progress: u32,
@@ -85,13 +87,13 @@ pub struct MidiNoteDesc {
 }
 
 pub struct MonoVoiceTracker {
-	pub channels: Box<[Option<MidiNoteDesc>; 16]>,
+	pub channels: Box<[Option<MidiVoiceDesc>; 16]>,
 	pub release_length: u32,
 	pub zero_crossing: bool,
 }
 
 pub struct PolyVoiceTracker {
-	pub channel_voices: Box<[HashMap<u8, MidiNoteDesc>; 16]>,
+	pub channel_voices: Box<[HashMap<u8, MidiVoiceDesc>; 16]>,
     pub polyphony: u8,
 	pub release_length: u32,
 	pub zero_crossing: bool,
@@ -118,7 +120,7 @@ impl MonoVoiceTracker {
 
 		match status.code() {
 			MidiStatusCode::NoteOn => {
-				let desc = MidiNoteDesc {
+				let desc = MidiVoiceDesc {
 					note: msg.data[1],
 					velocity: msg.data[2],
 					progress: 0,
@@ -197,7 +199,7 @@ impl PolyVoiceTracker {
 		match status.code() {
 			MidiStatusCode::NoteOn => {
 				let voices = &mut self.channel_voices[channel as usize];
-				let desc = MidiNoteDesc {
+				let desc = MidiVoiceDesc {
 					note: msg.data[1],
 					velocity: msg.data[2],
 					progress: 0,
@@ -249,5 +251,122 @@ impl PolyVoiceTracker {
 			voice.released = true;
 		}
 	}
+}
 
+pub struct MidiNoteDesc {
+	pub pos: Step,
+	pub len: Step,
+	pub note: u8,
+	pub vel: u8
+}
+
+pub struct MidiBlock {
+	pub channels: [Vec<MidiNoteDesc>; 16],
+}
+
+impl Resource for MidiBlock {
+	fn resource_kind_id(&self) -> &'static str {
+		"MidiBlock"
+	}
+
+	fn get_action_list(&self) -> &'static [&'static str] {
+		&[
+			"add_note",
+			"remove_note",
+			"update_note",
+		]
+	}
+
+	fn apply_action(&mut self, action: &'static str, args: &[ParamValue]) {
+		let [ParamValue::Int(channel), args @ ..] = args else {
+			return
+		};
+
+		let channel = *channel as usize;
+
+		match action {
+			"add_note" => {
+				let [
+					ParamValue::Int(note),
+					ParamValue::Int(len),
+					ParamValue::Int(pos),
+					ParamValue::Int(vel)
+				] = args else {
+					return
+				};
+
+				self.channels[channel].push(MidiNoteDesc {
+					pos: Step(*pos as usize),
+					len: Step(*len as usize),
+					note: *note as u8,
+					vel: *vel as u8,
+				});
+			}
+			
+			"update_note" => {
+				let [
+					ParamValue::Int(idx),
+					ParamValue::Int(value),
+					ParamValue::Int(len),
+					ParamValue::Int(pos),
+					ParamValue::Int(vel)
+				] = args else {
+					return
+				};
+				
+				let note = &mut self.channels[channel][*idx as usize];
+
+				note.pos = Step(*pos as usize);
+				note.len = Step(*len as usize);
+				note.note = *value as u8;
+				note.vel = *vel as u8;
+			}
+			
+			"remove_note" => {
+				let [ParamValue::Int(idx)] = args else {
+					return
+				};
+
+				self.channels[channel].remove(*idx as usize);
+			}
+
+			_ => panic!()
+		}
+	}
+
+	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> {
+		let [ParamValue::String(request), args @ ..] = keys else {
+			return None
+		};
+
+		match request.as_str() {
+
+			"get_note_pos" | "get_note_len" | "get_note_value" | "get_note_vel" => {
+				let [ParamValue::Int(channel), ParamValue::Int(note)] = args else {
+					return None
+				};
+
+				let note = self.channels[*channel as usize].get(*note as usize)?;
+
+				match request.as_str() {
+					"get_note_pos" => Some(ParamValue::Int(note.pos.0 as i64)),
+					"get_note_len" => Some(ParamValue::Int(note.len.0 as i64)),
+					"get_note_value" => Some(ParamValue::Int(note.note as i64)),
+					"get_note_vel" => Some(ParamValue::Int(note.vel as i64)),
+
+					_ => unreachable!()
+				}
+			}
+
+			"get_channel_note_count" => {
+				let [ParamValue::Int(channel)] = args else {
+					return None
+				};
+
+				Some(ParamValue::Int(self.channels[*channel as usize].len() as i64))
+			}
+
+			_ => None
+		}
+	}
 }

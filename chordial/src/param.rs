@@ -117,3 +117,27 @@ impl ParamValue {
 		}
 	}
 }
+
+impl From<String> for ParamValue {
+	fn from(value: String) -> Self {
+		ParamValue::String(value)
+	}
+}
+
+impl From<i64> for ParamValue {
+	fn from(value: i64) -> Self {
+		ParamValue::Int(value)
+	}
+}
+
+impl From<f64> for ParamValue {
+	fn from(value: f64) -> Self {
+		ParamValue::Float(value)
+	}
+}
+
+impl From<bool> for ParamValue {
+	fn from(value: bool) -> Self {
+		ParamValue::Bool(value)
+	}
+}

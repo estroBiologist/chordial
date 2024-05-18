@@ -1,6 +1,6 @@
 use std::{fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, util::{inverse_lerp, lerp}};
+use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::Resource, util::{inverse_lerp, lerp}};
 
 pub mod effect;
 pub mod io;
@@ -48,22 +48,22 @@ pub trait Node: Send {
 		false
 	}
 
-	fn get_length(&self) -> TimelineUnit {
+	fn get_length(&self) -> Step {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_position(&mut self, pos: TimelineUnit) {
+	fn set_position(&mut self, pos: Step) {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_start_offset(&mut self, offset: TimelineUnit) {
+	fn set_start_offset(&mut self, offset: Step) {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_end_offset(&mut self, offset: TimelineUnit) {
+	fn set_end_offset(&mut self, offset: Step) {
 		panic!()
 	}
 }
@@ -204,19 +204,19 @@ impl<T: Node> NodeUtil for T {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TimelineUnit(pub usize);
+pub struct Step(pub usize);
 
-impl Display for TimelineUnit {
+impl Display for Step {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.0)
 	}
 }
 
-impl Add for TimelineUnit {
-	type Output = TimelineUnit;
+impl Add for Step {
+	type Output = Step;
 	
 	fn add(self, rhs: Self) -> Self::Output {
-		TimelineUnit(self.0 + rhs.0)
+		Step(self.0 + rhs.0)
 	}
 }
 
@@ -367,7 +367,7 @@ impl Buffer {
 
 	pub fn resize(&mut self, len: usize) {
 		match self {
-			Buffer::Audio(buf) => buf.resize(len, Frame([0.0; 2])),
+			Buffer::Audio(buf) => buf.resize(len, Frame::ZERO),
 			Buffer::Midi(buf) => buf.resize(len, MidiMessageChain::default()),
 			Buffer::Control(buf) => buf.resize(len, 0.0),
 		}
@@ -447,7 +447,7 @@ impl<'buf> BufferAccess<'buf> {
 
 	pub fn clear(&mut self) {
 		match self {
-			BufferAccess::Audio(buf) => buf.fill(Frame([0f32; 2])),
+			BufferAccess::Audio(buf) => buf.fill(Frame::ZERO),
 			BufferAccess::Control(buf) => buf.fill(0f32),
 			BufferAccess::Midi(buf) => buf.fill(MidiMessageChain::default()),
 		}
@@ -691,14 +691,14 @@ impl Node for Envelope {
 
 
 pub struct Trigger {
-	pub node_pos: TimelineUnit,
+	pub node_pos: Step,
 	pub tl_pos: usize,
 }
 
 impl Trigger {
 	pub fn new() -> Self {
 		Trigger {
-			node_pos: TimelineUnit(0),
+			node_pos: Step(0),
 			tl_pos: 0,
 		}
 	}
@@ -752,18 +752,18 @@ impl Node for Trigger {
 		true
 	}
 
-	fn get_length(&self) -> TimelineUnit {
-		TimelineUnit(1)
+	fn get_length(&self) -> Step {
+		Step(1)
 	}
 
-	fn set_position(&mut self, pos: TimelineUnit) {
+	fn set_position(&mut self, pos: Step) {
 		self.node_pos = pos
 	}
 
-	fn set_start_offset(&mut self, _offset: TimelineUnit) {
+	fn set_start_offset(&mut self, _offset: Step) {
 	}
 
-	fn set_end_offset(&mut self, _offset: TimelineUnit) {
+	fn set_end_offset(&mut self, _offset: Step) {
 	}
 }
 

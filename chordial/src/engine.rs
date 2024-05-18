@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TimelineUnit, Trigger}, param::ParamValue};
+use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue};
 
 
 pub const BEAT_DIVISIONS: u32 = 24;
@@ -27,6 +27,10 @@ impl Add for Frame {
 	fn add(self, rhs: Self) -> Self::Output {
 		Frame([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1]])
 	}
+}
+
+impl Frame {
+	pub const ZERO: Frame = Frame([0f32; 2]);
 }
 
 
@@ -206,11 +210,11 @@ impl Engine {
 		let start = Instant::now();
 
 		if !self.playing {
-			buffer.fill(Frame([0f32; 2]));
+			buffer.fill(Frame::ZERO);
 			
 			if self.enable_buffer_readback {
-				self.buffer_readback.resize(buffer.len(), Frame([0f32; 2]));
-				self.buffer_readback.fill(Frame([0f32; 2]));
+				self.buffer_readback.resize(buffer.len(), Frame::ZERO);
+				self.buffer_readback.fill(Frame::ZERO);
 			}
 
 			return
@@ -232,7 +236,7 @@ impl Engine {
 		self.dbg_buffer_size = buffer.len() as u32;
 
 		if self.enable_buffer_readback {
-			self.buffer_readback.resize(buffer.len(), Frame([0f32; 2]));
+			self.buffer_readback.resize(buffer.len(), Frame::ZERO);
 			self.buffer_readback.copy_from_slice(&buffer);
 		}
 	}
@@ -373,13 +377,13 @@ impl Config {
 		self.bpm / 60.0
 	}
 
-	pub fn tl_units_to_frames(&self, timeline_unit: TimelineUnit) -> usize {
+	pub fn tl_units_to_frames(&self, timeline_unit: Step) -> usize {
 		let beat = timeline_unit.0 as f64 / BEAT_DIVISIONS as f64;
 		(beat * self.secs_per_beat() * self.sample_rate as f64) as usize
 	}
 
-	pub fn frames_to_tl_units(&self, frames: usize) -> TimelineUnit {
+	pub fn frames_to_tl_units(&self, frames: usize) -> Step {
 		let beat = frames as f64 / self.sample_rate as f64 / self.secs_per_beat();
-		TimelineUnit((beat * BEAT_DIVISIONS as f64) as usize)
+		Step((beat * BEAT_DIVISIONS as f64) as usize)
 	}
 }

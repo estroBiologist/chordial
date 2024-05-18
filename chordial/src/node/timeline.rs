@@ -1,20 +1,13 @@
-use crate::{engine::{Config, Engine}, midi::{MidiMessage, MidiStatusByte, MidiStatusCode}};
+use crate::{engine::{Config, Engine}, midi::{MidiBlock, MidiMessage, MidiStatusByte, MidiStatusCode}, param::ParamValue, resource::ResourceBuffer};
 
-use super::{BufferAccess, BusKind, Node, NodeInstance, TimelineUnit};
+use super::{BufferAccess, BusKind, Node, NodeInstance, Step};
 
-
-pub struct MidiClipNote {
-	pub pos: TimelineUnit,
-	pub len: TimelineUnit,
-	pub note: u8,
-	pub vel: u8
-}
 
 pub struct MidiClip {
-	pub channels: [Vec<MidiClipNote>; 16],
-	pub position: TimelineUnit,
-	pub start_offset: TimelineUnit,
-	pub end_offset: TimelineUnit,
+	pub data: ResourceBuffer,
+	pub position: Step,
+	pub start_offset: Step,
+	pub end_offset: Step,
 	pub playback_pos: usize,
 }
 
@@ -36,6 +29,7 @@ impl Node for MidiClip {
 	) {
 		
 		let buffer = buffer.midi_mut().unwrap();
+		let data = self.data.read();
 
 		buffer
 			.iter_mut()
@@ -46,11 +40,16 @@ impl Node for MidiClip {
 				let prev_tl_pos = if sample_pos > 0 {
 					engine.config.frames_to_tl_units(sample_pos - 1)
 				} else {
-					TimelineUnit(0)
+					Step(0)
 				};
+				
 
-				for channel in 0..self.channels.len() {
-					for note in &self.channels[channel] {
+				for channel in 0..16 {
+					let Some(ParamValue::Int(note_count)) = data.get(&[channel.into()]) else {
+						return
+					};
+					
+					for i in 0..note_count {
 						let note_pos = note.pos + self.position;
 						let note_end = note_pos + note.len;
 
@@ -92,15 +91,15 @@ impl Node for MidiClip {
 		true
 	}
 
-	fn set_position(&mut self, pos: TimelineUnit) {
+	fn set_position(&mut self, pos: Step) {
 		self.position = pos;
 	}
 
-	fn set_start_offset(&mut self, offset: TimelineUnit) {
+	fn set_start_offset(&mut self, offset: Step) {
 		self.start_offset = offset;
 	}
 
-	fn set_end_offset(&mut self, offset: TimelineUnit) {
+	fn set_end_offset(&mut self, offset: Step) {
 		self.end_offset = offset;
 	}
 }
