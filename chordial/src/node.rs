@@ -1,6 +1,6 @@
 use std::{fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
-use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::Resource, util::{inverse_lerp, lerp}};
+use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::ResourceAccess, util::{inverse_lerp, lerp}};
 
 pub mod effect;
 pub mod io;
@@ -37,6 +37,20 @@ pub trait Node: Send {
 
 	#[allow(unused_variables)]
 	fn seek(&mut self, position: usize, config: &Config) { }
+
+
+	// Resources
+	//
+	// A Resource is a way to store and exchange data between the engine and external
+	// tools (such as Chordial Studio).	While Resources may have various underlying types,
+	// they're exposed to the outside world through a homogenous ResourceAccess API.
+
+	#[allow(unused_variables)]
+	fn get_resource_names(&self) -> &'static [&'static str] { &[] }
+	
+	#[allow(unused_variables)]
+	fn get_resource(&self, name: &str) -> &dyn ResourceAccess { panic!() }
+
 
 	// Timeline functionality
 	//
