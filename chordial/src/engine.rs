@@ -437,6 +437,22 @@ impl Engine {
 			[].iter()
 		}
 	}
+	
+	pub fn get_resource_count_by_kind(&self, kind: &'static str) -> usize {
+		if let Some(resources) = self.resources.get(kind) {
+			resources.len()
+		} else {
+			0
+		}
+	}
+	
+	pub fn get_resource(&self, kind: &'static str, idx: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
+		if let Some(resources) = self.resources.get(kind) {
+			resources.get(idx)
+		} else {
+			None
+		}
+	}
 }
 
 impl Config {
