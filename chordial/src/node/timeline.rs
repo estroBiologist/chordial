@@ -18,6 +18,18 @@ pub struct MidiClip {
 	pub playback_pos: usize,
 }
 
+impl MidiClip {
+	pub fn new(data: ResourceHandle<MidiBlock>) -> Self {
+		MidiClip {
+			data,
+			position: Step(0),
+			start_offset: Step(0),
+			end_offset: Step(0),
+			playback_pos: 0,
+		}
+	}
+}
+
 impl Node for MidiClip {
 	fn get_name(&self) -> &'static str {
 		"MIDI Clip"

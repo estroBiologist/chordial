@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
+use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
 
 
 pub const BEAT_DIVISIONS: u32 = 24;
@@ -46,16 +46,20 @@ impl Config {
 	}
 }
 
-pub type NodeConstructor = Box<dyn Fn(&Engine) -> Box<dyn Node> + Send>;
+pub type NodeCtor = Arc<dyn Fn(&mut Engine) -> Box<dyn Node> + Send + Sync>;
+pub type ResourceCtor = Arc<dyn Fn(&mut Engine) -> Box<dyn ResourceHandleDyn> + Send + Sync>;
 
 pub struct Engine {
 	pub config: Config,
 	pub playing: bool,
 	
 	nodes: BTreeMap<usize, NodeInstance>,
-	constructors: HashMap<&'static str, NodeConstructor>,
+	node_ctors: HashMap<&'static str, NodeCtor>,
 	node_counter: usize,
+
 	resources: HashMap<&'static str, Vec<Box<dyn ResourceHandleDyn>>>,
+	resource_ctors: HashMap<&'static str, ResourceCtor>,
+
 	position: usize,
 	
 	pub enable_buffer_readback: bool,
@@ -68,18 +72,24 @@ pub struct Engine {
 
 impl Engine {
 	pub fn new(sample_rate: u32) -> Self {
-		let mut engine = Engine { 
-			nodes: BTreeMap::new(),
-			constructors: HashMap::new(),
-			node_counter: 0,
+		let mut engine = Engine {
 			config: Config {
 				sample_rate,
 				bpm: 120.0,
 				tuning: 440.0,
 			},
-			resources: HashMap::new(),
-			position: 0,
+
 			playing: false,
+
+			nodes: BTreeMap::new(),
+			node_ctors: HashMap::new(),
+			node_counter: 0,
+			
+			resources: HashMap::new(),
+			resource_ctors: HashMap::new(),
+
+			position: 0,
+			
 			enable_buffer_readback: false,
 			buffer_readback: vec![],
 			dbg_buffer_size: 0u32,
@@ -87,16 +97,19 @@ impl Engine {
 			dbg_process_time: 0f32,
 		};
 
-		engine.register("chordial.amplify", |_| Box::new(Amplify));
-		engine.register("chordial.sink", |_| Box::new(Sink));
-		engine.register("chordial.sine", |_| Box::new(Sine::new(440.0)));
-		engine.register("chordial.gain", |_| Box::new(Gain { gain: 0.0 }));
-		engine.register("chordial.trigger", |_| Box::new(Trigger::new()));
-		engine.register("chordial.envelope", |_| Box::new(Envelope::new()));
-		engine.register("chordial.control_value", |_| Box::new(ControlValue { value: 0.0f32 }));
-		engine.register("chordial.osc", |_| Box::new(Osc::new()));
-		engine.register("chordial.polyosc", |_| Box::new(PolyOsc::new()));
-		engine.register("chordial.midi_split", |_| Box::new(MidiSplit::new()));
+		engine.register_resource(|_| MidiBlock::default());
+
+		engine.register_node("chordial.amplify", |_| Box::new(Amplify));
+		engine.register_node("chordial.sink", |_| Box::new(Sink));
+		engine.register_node("chordial.sine", |_| Box::new(Sine::new(440.0)));
+		engine.register_node("chordial.gain", |_| Box::new(Gain { gain: 0.0 }));
+		engine.register_node("chordial.trigger", |_| Box::new(Trigger::new()));
+		engine.register_node("chordial.envelope", |_| Box::new(Envelope::new()));
+		engine.register_node("chordial.control_value", |_| Box::new(ControlValue { value: 0.0f32 }));
+		engine.register_node("chordial.osc", |_| Box::new(Osc::new()));
+		engine.register_node("chordial.polyosc", |_| Box::new(PolyOsc::new()));
+		engine.register_node("chordial.midi_split", |_| Box::new(MidiSplit::new()));
+		engine.register_node("chordial.midi_clip", |engine| Box::new(MidiClip::new(engine.add_resource(MidiBlock::default()))));
 
 		engine.create_node("chordial.sink");
 		engine
@@ -132,11 +145,14 @@ impl Engine {
 			let name = &name[1..];
 			let idx = idx.parse::<usize>().unwrap();
 
-			let Some((id, ctor)) = self.constructors.get_key_value(name) else {
-				panic!("unknown node constructor `{name}`");
+			let Some(ctor) = self.node_ctors.get(name) else {
+				panic!("unknown node constructor `{name}`")
 			};
 
-			let mut node = NodeInstance::new_dyn(ctor(&self), id);
+			let node = ctor.clone()(self);
+
+			let (id, _) = self.node_ctors.get_key_value(name).unwrap();
+			let mut node = NodeInstance::new_dyn(node, id);
 			
 			node.inputs.clear();
 			current = lines.next();
@@ -196,18 +212,6 @@ impl Engine {
 		}
 	}
 
-	pub fn register(
-		&mut self, 
-		name: &'static str, 
-		ctor: impl Fn(&Engine) -> Box<dyn Node> + Send + 'static
-	) {
-		if self.constructors.contains_key(name) {
-			panic!("constructor `{name}` already registered!")
-		}
-
-		self.constructors.insert(name, Box::new(ctor));
-	}
-
 	pub fn render(&mut self, buffer: &mut [Frame]) {
 		let start = Instant::now();
 
@@ -255,13 +259,28 @@ impl Engine {
 		self.position
 	}
 
+	pub fn register_node(
+		&mut self, 
+		name: &'static str, 
+		ctor: impl Fn(&mut Engine) -> Box<dyn Node> + Send + Sync + 'static
+	) {
+		if self.node_ctors.contains_key(name) {
+			panic!("constructor `{name}` already registered!")
+		}
+
+		self.node_ctors.insert(name, Arc::new(ctor));
+	}
+
 	pub fn create_node(&mut self, name: &str) -> Option<usize> {
-		let Some((id, ctor)) = self.constructors.get_key_value(name) else {
+		let Some(ctor) = self.node_ctors.get(name) else {
 			eprintln!("warning: unknown node constructor `{name}`, skipping");
 			return None
 		};
+		let node = ctor.clone()(self);
 
-		Some(self.add_node_dyn(ctor(&self), id))
+		let (id, _) = self.node_ctors.get_key_value(name).unwrap();
+		
+		Some(self.add_node_dyn(node, id))
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {
@@ -329,8 +348,8 @@ impl Engine {
 		input_node.outputs[output_ref.output].read().unwrap()
 	}
 
-	pub fn constructors(&self) -> impl Iterator<Item = &str> {
-		self.constructors.keys().copied()
+	pub fn node_constructors(&self) -> impl Iterator<Item = &str> {
+		self.node_ctors.keys().copied()
 	}
 
 	pub fn get_debug_info(&self) -> String {
@@ -368,16 +387,32 @@ impl Engine {
 
 		result
 	}
+	
+	pub fn register_resource<T: Resource + 'static>(
+		&mut self,
+		ctor: impl Fn(&mut Engine) -> T + Send + Sync + 'static,
+	) {
+		let ctor: ResourceCtor = Arc::new(move |engine| {
+			let resource = ctor(engine);
+			let handle = engine.add_resource(resource);
+
+			Box::new(handle)
+		});
+
+		let kind = ctor(self).resource_kind_id();
+
+		self.resource_ctors.insert(kind, ctor);
+	}
 
 	pub fn add_resource<T>(&mut self, resource: T) -> ResourceHandle<T>
 	where
-		T: Resource + Send + Sync + 'static
+		T: Resource + 'static
 	{
 		let kind = resource.resource_kind_id();
-		let handle = ResourceHandle {
-			data: Arc::new(RwLock::new(resource)),
-			path: Arc::default(),
-		};
+		let handle = ResourceHandle::new(
+			Arc::new(RwLock::new(resource)),
+			Arc::default(),
+		);
 
 		if let Some(existing) = self.resources.get_mut(kind) {
 			existing.push(Box::new(handle.clone()));
@@ -386,6 +421,11 @@ impl Engine {
 		}
 
 		handle
+	}
+
+	pub fn create_resource(&mut self, kind: &'static str) -> Box<dyn ResourceHandleDyn> {
+		let ctor = self.resource_ctors[kind].clone();
+		ctor(self)
 	}
 
 	pub fn get_resources_by_kind(&self, kind: &'static str)

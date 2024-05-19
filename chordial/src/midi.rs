@@ -261,7 +261,7 @@ pub struct MidiNoteDesc {
 	pub vel: u8
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MidiBlock {
 	pub channels: [Vec<MidiNoteDesc>; 16],
 }

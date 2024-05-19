@@ -5,7 +5,13 @@ use crate::{engine::Frame, param::ParamValue};
 use self::private::ResourceHandleSealed;
 
 
-pub trait Resource: Clone {
+mod private {
+	pub trait ResourceHandleSealed {}
+}
+
+
+pub trait Resource: Clone + Send + Sync {
+
 	fn resource_kind_id(&self) -> &'static str;
 
 	#[allow(unused_variables)]
@@ -13,13 +19,12 @@ pub trait Resource: Clone {
 
 	#[allow(unused_variables)]
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> { None }
+
 }
 
-mod private {
-	pub trait ResourceHandleSealed {}
-}
 
 pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
+
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]);
 
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
@@ -27,19 +32,29 @@ pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 	fn resource_kind_id(&self) -> &'static str;
 
 	fn make_unique(&mut self);
+
 }
 
 
 #[derive(Clone)]
-pub struct ResourceHandle<T: Resource + Send + Sync> {
-	pub(crate) data: Arc<RwLock<T>>,
-	pub(crate) path: Arc<RwLock<Option<PathBuf>>>,
+pub struct ResourceHandle<T: Resource> {
+	data: Arc<RwLock<T>>,
+	path: Arc<RwLock<Option<PathBuf>>>,
 }
 
-impl<T> ResourceHandle<T>
-where 
-	T: Resource + Send + Sync
-{
+
+impl<T: Resource> ResourceHandle<T> {
+
+	// ResourceHandles can only be given out by the chordial engine,
+	// use Engine::add_resource() or Engine::create_resource()
+	// instead of creating a ResourceHandle manually
+	pub(crate) fn new(data: Arc<RwLock<T>>, path: Arc<RwLock<Option<PathBuf>>>) -> Self {
+		ResourceHandle {
+			data,
+			path
+		}
+	}
+
 	pub fn read(&self) -> RwLockReadGuard<T> {
 		self.data.read().unwrap()
 	}
@@ -63,18 +78,15 @@ where
 	pub fn detach_from_external(&self) {
 		*self.path.write().unwrap() = None;
 	}
+
 }
 
 
-impl<T> ResourceHandleSealed for ResourceHandle<T>
-where
-	T: Resource + Send + Sync {}
+impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 
 
-impl<T> ResourceHandleDyn for ResourceHandle<T>
-where
-	T: Resource + Send + Sync
-{
+impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
+
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]) {
 		self.write().apply_action(action, args)
 	}
@@ -93,7 +105,9 @@ where
 		self.data = res;
 		self.path = Arc::default();
 	}
+
 }
+
 
 #[derive(Clone)]
 pub struct AudioData {
