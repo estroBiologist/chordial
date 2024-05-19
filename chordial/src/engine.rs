@@ -423,12 +423,12 @@ impl Engine {
 		handle
 	}
 
-	pub fn create_resource(&mut self, kind: &'static str) -> Box<dyn ResourceHandleDyn> {
+	pub fn create_resource(&mut self, kind: &str) -> Box<dyn ResourceHandleDyn> {
 		let ctor = self.resource_ctors[kind].clone();
 		ctor(self)
 	}
 
-	pub fn get_resources_by_kind(&self, kind: &'static str)
+	pub fn get_resources_by_kind(&self, kind: &str)
 		-> impl Iterator<Item = &Box<dyn ResourceHandleDyn>>
 	{
 		if let Some(resources) = self.resources.get(kind) {
@@ -438,15 +438,15 @@ impl Engine {
 		}
 	}
 	
-	pub fn get_resource_count_by_kind(&self, kind: &'static str) -> usize {
+	pub fn get_resource_count_by_kind(&self, kind: &str) -> usize {
 		if let Some(resources) = self.resources.get(kind) {
 			resources.len()
 		} else {
 			0
 		}
 	}
-	
-	pub fn get_resource(&self, kind: &'static str, idx: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
+
+	pub fn get_resource(&self, kind: &str, idx: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
 		if let Some(resources) = self.resources.get(kind) {
 			resources.get(idx)
 		} else {
