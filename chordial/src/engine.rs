@@ -109,7 +109,7 @@ impl Engine {
 		engine.register_node("chordial.osc", |_| Box::new(Osc::new()));
 		engine.register_node("chordial.polyosc", |_| Box::new(PolyOsc::new()));
 		engine.register_node("chordial.midi_split", |_| Box::new(MidiSplit::new()));
-		engine.register_node("chordial.midi_clip", |engine| Box::new(MidiClip::new(engine.add_resource(MidiBlock::default()))));
+		engine.register_node("chordial.midi_clip", |_| Box::new(MidiClip::new(ResourceHandle::nil())));
 
 		engine.create_node("chordial.sink");
 		engine

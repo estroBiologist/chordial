@@ -37,34 +37,60 @@ pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 
 
 #[derive(Clone)]
-pub struct ResourceHandle<T: Resource> {
+struct ResourceData<T: Resource> {
 	data: Arc<RwLock<T>>,
 	path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 
+#[derive(Clone)]
+pub struct ResourceHandle<T: Resource> {
+	inner: Option<ResourceData<T>>,
+}
+
+
 impl<T: Resource> ResourceHandle<T> {
 
-	// ResourceHandles can only be given out by the chordial engine,
-	// use Engine::add_resource() or Engine::create_resource()
-	// instead of creating a ResourceHandle manually
+	// Non-empty ResourceHandles can only be given out by the engine,
+	// use Engine::add_resource() or Engine::create_resource() instead
 	pub(crate) fn new(data: Arc<RwLock<T>>, path: Arc<RwLock<Option<PathBuf>>>) -> Self {
 		ResourceHandle {
-			data,
-			path
+			inner: Some(ResourceData {
+				data,
+				path
+				}
+			)
+		}
+	}
+
+	pub fn nil() -> Self {
+		ResourceHandle {
+			inner: None,
+		}
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.inner.is_none()
+	}
+
+	pub fn data(&self) -> Option<&Arc<RwLock<T>>> {
+		if let Some(inner) = &self.inner {
+			Some(&inner.data)
+		} else {
+			None
 		}
 	}
 
 	pub fn read(&self) -> RwLockReadGuard<T> {
-		self.data.read().unwrap()
+		self.data().unwrap().read().unwrap()
 	}
 
 	pub fn write(&self) -> RwLockWriteGuard<T> {
-		self.data.write().unwrap()
+		self.inner.as_ref().unwrap().data.write().unwrap()
 	}
 
 	pub fn path(&self) -> Option<PathBuf> {
-		if let Some(path) = &*self.path.read().unwrap() {
+		if let Some(path) = &*self.inner.as_ref().unwrap().path.read().unwrap() {
 			Some(path.clone())
 		} else {
 			None
@@ -72,11 +98,11 @@ impl<T: Resource> ResourceHandle<T> {
 	}
 
 	pub fn is_external(&self) -> bool {
-		self.path.read().unwrap().is_some()
+		self.path().is_some()
 	}
 
 	pub fn detach_from_external(&self) {
-		*self.path.write().unwrap() = None;
+		*self.inner.as_ref().unwrap().path.write().unwrap() = None;
 	}
 
 }
@@ -102,8 +128,10 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 	fn make_unique(&mut self) {
 		let res = Arc::new(RwLock::new(self.read().clone()));
 		
-		self.data = res;
-		self.path = Arc::default();
+		self.inner = Some(ResourceData {
+			data: res,
+			path: Arc::default()
+		});
 	}
 
 }
