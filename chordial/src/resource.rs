@@ -33,6 +33,8 @@ pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 
 	fn make_unique(&mut self);
 
+	fn is_empty(&self) -> bool;
+
 }
 
 
@@ -134,6 +136,9 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 		});
 	}
 
+	fn is_empty(&self) -> bool {
+		self.inner.is_none()
+	}
 }
 
 
