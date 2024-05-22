@@ -15,7 +15,7 @@ pub trait Resource: Clone + Send + Sync {
 	fn resource_kind_id(&self) -> &'static str;
 
 	#[allow(unused_variables)]
-	fn apply_action(&mut self, action: &'static str, args: &[ParamValue]) { }
+	fn apply_action(&mut self, action: &str, args: &[ParamValue]) { }
 
 	#[allow(unused_variables)]
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> { None }
@@ -110,7 +110,7 @@ impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 
 pub trait ResourceHandleDyn: Any + Send + private::ResourceHandleSealed {
 
-	fn apply_action(&self, action: &'static str, args: &[ParamValue]);
+	fn apply_action(&self, action: &str, args: &[ParamValue]);
 
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
 	
@@ -127,7 +127,7 @@ pub trait ResourceHandleDyn: Any + Send + private::ResourceHandleSealed {
 
 impl<T: Resource + 'static> ResourceHandleDyn for ResourceHandle<T> {
 
-	fn apply_action(&self, action: &'static str, args: &[ParamValue]) {
+	fn apply_action(&self, action: &str, args: &[ParamValue]) {
 		self.inner().as_ref().unwrap().write().unwrap().data.apply_action(action, args)
 	}
 

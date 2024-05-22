@@ -271,7 +271,7 @@ impl Resource for MidiBlock {
 		"MidiBlock"
 	}
 
-	fn apply_action(&mut self, action: &'static str, args: &[ParamValue]) {
+	fn apply_action(&mut self, action: &str, args: &[ParamValue]) {
 		let [ParamValue::Int(channel), args @ ..] = args else {
 			return
 		};
