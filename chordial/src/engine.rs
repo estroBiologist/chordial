@@ -310,7 +310,7 @@ impl Engine {
 			self.node_counter += 1;
 		}
 		self.nodes.insert(self.node_counter, NodeInstance::new_dyn(node, id));
-		self.node_counter - 1
+		self.node_counter
 	}
 
 	pub fn get_node(&self, node: usize) -> Option<&NodeInstance> {
