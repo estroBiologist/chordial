@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smallvec::SmallVec;
 
-use crate::{node::Step, param::ParamValue, resource::Resource};
+use crate::{node::TlUnit, param::ParamValue, resource::Resource};
 
 pub type MidiMessageChain = SmallVec<[MidiMessage; 4]>;
 
@@ -261,8 +261,8 @@ impl PolyVoiceTracker {
 
 #[derive(Copy, Clone)]
 pub struct MidiNoteDesc {
-	pub pos: Step,
-	pub len: Step,
+	pub pos: TlUnit,
+	pub len: TlUnit,
 	pub note: u8,
 	pub vel: u8
 }
@@ -297,8 +297,8 @@ impl Resource for MidiBlock {
 				};
 
 				self.channels[channel].push(MidiNoteDesc {
-					pos: Step(*pos as usize),
-					len: Step(*len as usize),
+					pos: TlUnit(*pos as usize),
+					len: TlUnit(*len as usize),
 					note: *note as u8,
 					vel: *vel as u8,
 				});
@@ -317,8 +317,8 @@ impl Resource for MidiBlock {
 				
 				let note = &mut self.channels[channel][*idx as usize];
 
-				note.pos = Step(*pos as usize);
-				note.len = Step(*len as usize);
+				note.pos = TlUnit(*pos as usize);
+				note.len = TlUnit(*len as usize);
 				note.note = *value as u8;
 				note.vel = *vel as u8;
 			}

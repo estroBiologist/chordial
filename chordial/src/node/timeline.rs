@@ -1,20 +1,20 @@
 use crate::{engine::{Config, Engine}, midi::{MidiBlock, MidiMessage, MidiStatusByte, MidiStatusCode}, resource::{ResourceHandleDyn, ResourceHandle}};
 
-use super::{BufferAccess, BusKind, Node, NodeInstance, Step};
+use super::{BufferAccess, BusKind, Node, NodeInstance, TlUnit};
 
 
 pub struct MidiClipNote {
-	pub pos: Step,
-	pub len: Step,
+	pub pos: TlUnit,
+	pub len: TlUnit,
 	pub note: u8,
 	pub vel: u8
 }
 
 pub struct MidiClip {
 	pub data: ResourceHandle<MidiBlock>,
-	pub position: Step,
-	pub start_offset: Step,
-	pub end_offset: Step,
+	pub position: TlUnit,
+	pub start_offset: TlUnit,
+	pub end_offset: TlUnit,
 	pub playback_pos: usize,
 }
 
@@ -22,9 +22,9 @@ impl MidiClip {
 	pub fn new(data: ResourceHandle<MidiBlock>) -> Self {
 		MidiClip {
 			data,
-			position: Step(0),
-			start_offset: Step(0),
-			end_offset: Step(0),
+			position: TlUnit(0),
+			start_offset: TlUnit(0),
+			end_offset: TlUnit(0),
 			playback_pos: 0,
 		}
 	}
@@ -64,7 +64,7 @@ impl Node for MidiClip {
 				let prev_tl_pos = if sample_pos > 0 {
 					engine.config.frames_to_tl_units(sample_pos - 1)
 				} else {
-					Step(0)
+					TlUnit(0)
 				};
 				
 				for channel in 0..data.data.channels.len() {
@@ -110,15 +110,15 @@ impl Node for MidiClip {
 		true
 	}
 
-	fn set_position(&mut self, pos: Step) {
+	fn set_position(&mut self, pos: TlUnit) {
 		self.position = pos;
 	}
 
-	fn set_start_offset(&mut self, offset: Step) {
+	fn set_start_offset(&mut self, offset: TlUnit) {
 		self.start_offset = offset;
 	}
 
-	fn set_end_offset(&mut self, offset: Step) {
+	fn set_end_offset(&mut self, offset: TlUnit) {
 		self.end_offset = offset;
 	}
 

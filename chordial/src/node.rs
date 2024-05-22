@@ -62,22 +62,22 @@ pub trait Node: Send {
 		false
 	}
 
-	fn get_length(&self) -> Step {
+	fn get_length(&self) -> TlUnit {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_position(&mut self, pos: Step) {
+	fn set_position(&mut self, pos: TlUnit) {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_start_offset(&mut self, offset: Step) {
+	fn set_start_offset(&mut self, offset: TlUnit) {
 		panic!()
 	}
 
 	#[allow(unused_variables)]
-	fn set_end_offset(&mut self, offset: Step) {
+	fn set_end_offset(&mut self, offset: TlUnit) {
 		panic!()
 	}
 }
@@ -218,19 +218,19 @@ impl<T: Node> NodeUtil for T {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Step(pub usize);
+pub struct TlUnit(pub usize);
 
-impl Display for Step {
+impl Display for TlUnit {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.0)
 	}
 }
 
-impl Add for Step {
-	type Output = Step;
+impl Add for TlUnit {
+	type Output = TlUnit;
 	
 	fn add(self, rhs: Self) -> Self::Output {
-		Step(self.0 + rhs.0)
+		TlUnit(self.0 + rhs.0)
 	}
 }
 
@@ -705,14 +705,14 @@ impl Node for Envelope {
 
 
 pub struct Trigger {
-	pub node_pos: Step,
+	pub node_pos: TlUnit,
 	pub tl_pos: usize,
 }
 
 impl Trigger {
 	pub fn new() -> Self {
 		Trigger {
-			node_pos: Step(0),
+			node_pos: TlUnit(0),
 			tl_pos: 0,
 		}
 	}
@@ -766,18 +766,18 @@ impl Node for Trigger {
 		true
 	}
 
-	fn get_length(&self) -> Step {
-		Step(1)
+	fn get_length(&self) -> TlUnit {
+		TlUnit(1)
 	}
 
-	fn set_position(&mut self, pos: Step) {
+	fn set_position(&mut self, pos: TlUnit) {
 		self.node_pos = pos
 	}
 
-	fn set_start_offset(&mut self, _offset: Step) {
+	fn set_start_offset(&mut self, _offset: TlUnit) {
 	}
 
-	fn set_end_offset(&mut self, _offset: Step) {
+	fn set_end_offset(&mut self, _offset: TlUnit) {
 	}
 }
 

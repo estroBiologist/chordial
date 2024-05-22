@@ -1,9 +1,10 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, Step, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
+use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TlUnit, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
 
 
-pub const BEAT_DIVISIONS: u32 = 24;
+pub const STEP_DIVISIONS: u32 = 24;
+pub const BEAT_DIVISIONS: u32 = 4;
 
 #[derive(Copy, Clone)]
 pub struct Frame(pub [f32; 2]);
@@ -514,13 +515,13 @@ impl Config {
 		self.bpm / 60.0
 	}
 
-	pub fn tl_units_to_frames(&self, timeline_unit: Step) -> usize {
-		let beat = timeline_unit.0 as f64 / BEAT_DIVISIONS as f64;
+	pub fn tl_units_to_frames(&self, timeline_unit: TlUnit) -> usize {
+		let beat = timeline_unit.0 as f64 / (STEP_DIVISIONS * BEAT_DIVISIONS) as f64;
 		(beat * self.secs_per_beat() * self.sample_rate as f64) as usize
 	}
 
-	pub fn frames_to_tl_units(&self, frames: usize) -> Step {
+	pub fn frames_to_tl_units(&self, frames: usize) -> TlUnit {
 		let beat = frames as f64 / self.sample_rate as f64 / self.secs_per_beat();
-		Step((beat * BEAT_DIVISIONS as f64) as usize)
+		TlUnit((beat * (STEP_DIVISIONS * BEAT_DIVISIONS) as f64) as usize)
 	}
 }
