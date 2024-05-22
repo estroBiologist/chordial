@@ -487,7 +487,7 @@ impl Engine {
 		
 	}
 
-	pub fn link_resource(&self, node: usize, resource: &'static str, id: usize) {
+	pub fn link_resource(&self, node: usize, resource: &str, id: usize) {
 		let linked = &**self.resources.get(&id).unwrap();
 
 		self
