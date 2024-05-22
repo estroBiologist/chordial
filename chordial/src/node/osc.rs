@@ -178,6 +178,12 @@ impl Node for PolyOsc {
 		_config: &Config,
 	) {
 		self.pos = position;
+
+		let Some(lock) = &mut *self.notes.lock().unwrap() else {
+			panic!()
+		};
+
+		lock.kill_all_voices();
 	}
 }
 

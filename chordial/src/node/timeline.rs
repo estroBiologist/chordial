@@ -48,8 +48,12 @@ impl Node for MidiClip {
 	) {
 		
 		let buffer = buffer.midi_mut().unwrap();
-		let data = self.data.inner();
-		let data = data.as_ref().unwrap().read().unwrap();
+
+		let Some(data) = &*self.data.inner() else {
+			return
+		};
+
+		let data = data.read().unwrap();
 
 		buffer
 			.iter_mut()
@@ -74,7 +78,7 @@ impl Node for MidiClip {
 								MidiStatusByte::new(MidiStatusCode::NoteOn, channel as u8),
 								[note.note, note.vel]
 							));
-						} else if tl_pos < note_end && prev_tl_pos >= note_end && note.len.0 > 0 {
+						} else if tl_pos >= note_end && prev_tl_pos < note_end && note.len.0 > 0 {
 							// emit note end
 							m.push(MidiMessage::new(
 								MidiStatusByte::new(MidiStatusCode::NoteOff, channel as u8),

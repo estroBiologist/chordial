@@ -251,6 +251,12 @@ impl PolyVoiceTracker {
 			voice.released = true;
 		}
 	}
+
+	pub fn kill_all_voices(&mut self) {
+		for channel in self.channel_voices.iter_mut() {
+			channel.clear();
+		}
+	}
 }
 
 #[derive(Copy, Clone)]
@@ -287,7 +293,7 @@ impl Resource for MidiBlock {
 					ParamValue::Int(pos),
 					ParamValue::Int(vel)
 				] = args else {
-					return
+					panic!()
 				};
 
 				self.channels[channel].push(MidiNoteDesc {
@@ -306,7 +312,7 @@ impl Resource for MidiBlock {
 					ParamValue::Int(pos),
 					ParamValue::Int(vel)
 				] = args else {
-					return
+					panic!()
 				};
 				
 				let note = &mut self.channels[channel][*idx as usize];
@@ -319,7 +325,7 @@ impl Resource for MidiBlock {
 			
 			"remove_note" => {
 				let [ParamValue::Int(idx)] = args else {
-					return
+					panic!()
 				};
 
 				self.channels[channel].remove(*idx as usize);
