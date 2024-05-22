@@ -47,6 +47,7 @@ pub struct ResourceData<T: Resource> {
 #[derive(Clone)]
 pub struct ResourceHandle<T: Resource> {
 	inner: Option<Arc<RwLock<ResourceData<T>>>>,
+	kind: &'static str,
 }
 
 
@@ -55,19 +56,22 @@ impl<T: Resource> ResourceHandle<T> {
 	// Non-empty ResourceHandles can only be given out by the engine,
 	// use Engine::add_resource() or Engine::create_resource() instead
 	pub(crate) fn new(data: T, path: Option<PathBuf>, id: usize) -> Self {
+		let kind = data.resource_kind_id();
 		ResourceHandle {
 			inner: Some(Arc::new(RwLock::new(ResourceData {
 					data,
 					path,
 					id
 				}))
-			)
+			),
+			kind
 		}
 	}
 
-	pub fn nil() -> Self {
+	pub fn nil(kind: &'static str) -> Self {
 		ResourceHandle {
 			inner: None,
+			kind,
 		}
 	}
 
@@ -115,7 +119,7 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 	}
 	
 	fn resource_kind_id(&self) -> &'static str {
-		self.read().data.resource_kind_id()
+		self.kind
 	}
 
 	fn is_empty(&self) -> bool {
