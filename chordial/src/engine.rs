@@ -57,8 +57,10 @@ pub struct Engine {
 	node_ctors: HashMap<&'static str, NodeCtor>,
 	node_counter: usize,
 
-	resources: HashMap<&'static str, Vec<Box<dyn ResourceHandleDyn>>>,
+	resources_by_kind: HashMap<&'static str, Vec<Box<dyn ResourceHandleDyn>>>,
+	resources: HashMap<usize, Box<dyn ResourceHandleDyn>>,
 	resource_ctors: HashMap<&'static str, ResourceCtor>,
+	resource_counter: usize,
 
 	position: usize,
 	
@@ -85,8 +87,10 @@ impl Engine {
 			node_ctors: HashMap::new(),
 			node_counter: 0,
 			
+			resources_by_kind: HashMap::new(),
 			resources: HashMap::new(),
 			resource_ctors: HashMap::new(),
+			resource_counter: 0,
 
 			position: 0,
 			
@@ -208,7 +212,10 @@ impl Engine {
 			}
 
 			self.nodes.insert(idx, node);
-			self.node_counter = self.node_counter.max(idx + 1);
+		}
+
+		while self.nodes.contains_key(&self.node_counter) {
+			self.node_counter += 1;
 		}
 	}
 
@@ -284,19 +291,25 @@ impl Engine {
 	}
 
 	pub fn add_node_instance(&mut self, node: NodeInstance) {
+		while self.nodes.contains_key(&self.node_counter) {
+			self.node_counter += 1;
+		}
 		self.nodes.insert(self.node_counter, node);
-		self.node_counter += 1;
 	}
 
     pub fn add_node(&mut self, node: impl Node + 'static, id: &'static str) -> usize {
+		while self.nodes.contains_key(&self.node_counter) {
+			self.node_counter += 1;
+		}
         self.nodes.insert(self.node_counter, NodeInstance::new(node, id));
-        self.node_counter += 1;
-		self.node_counter - 1
+		self.node_counter
     }
 
 	pub fn add_node_dyn(&mut self, node: Box<dyn Node + 'static>, id: &'static str) -> usize {
+		while self.nodes.contains_key(&self.node_counter) {
+			self.node_counter += 1;
+		}
 		self.nodes.insert(self.node_counter, NodeInstance::new_dyn(node, id));
-		self.node_counter += 1;
 		self.node_counter - 1
 	}
 
@@ -409,15 +422,15 @@ impl Engine {
 		T: Resource + 'static
 	{
 		let kind = resource.resource_kind_id();
-		let handle = ResourceHandle::new(
-			Arc::new(RwLock::new(resource)),
-			Arc::default(),
-		);
+		let id = self.get_next_resource_id();
+		let handle = ResourceHandle::new(resource, None, id);
+		
+		self.resources.insert(id, Box::new(handle.clone()));
 
-		if let Some(existing) = self.resources.get_mut(kind) {
+		if let Some(existing) = self.resources_by_kind.get_mut(kind) {
 			existing.push(Box::new(handle.clone()));
 		} else {
-			self.resources.insert(kind, vec![Box::new(handle.clone())]);			
+			self.resources_by_kind.insert(kind, vec![Box::new(handle.clone())]);			
 		}
 
 		handle
@@ -425,13 +438,15 @@ impl Engine {
 
 	pub fn create_resource(&mut self, kind: &str) -> Box<dyn ResourceHandleDyn> {
 		let ctor = self.resource_ctors[kind].clone();
-		ctor(self)
+		let resource = ctor(self);
+		
+		resource
 	}
 
 	pub fn get_resources_by_kind(&self, kind: &str)
 		-> impl Iterator<Item = &Box<dyn ResourceHandleDyn>>
 	{
-		if let Some(resources) = self.resources.get(kind) {
+		if let Some(resources) = self.resources_by_kind.get(kind) {
 			resources.iter()
 		} else {
 			[].iter()
@@ -439,19 +454,33 @@ impl Engine {
 	}
 	
 	pub fn get_resource_count_by_kind(&self, kind: &str) -> usize {
-		if let Some(resources) = self.resources.get(kind) {
+		if let Some(resources) = self.resources_by_kind.get(kind) {
 			resources.len()
 		} else {
 			0
 		}
 	}
 
-	pub fn get_resource(&self, kind: &str, idx: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
-		if let Some(resources) = self.resources.get(kind) {
+	pub fn get_resource_by_kind(&self, kind: &str, idx: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
+		if let Some(resources) = self.resources_by_kind.get(kind) {
 			resources.get(idx)
 		} else {
 			None
 		}
+	}
+
+	pub fn get_resource_by_id(&self, id: usize) -> Option<&Box<dyn ResourceHandleDyn>> {
+		self.resources.get(&id)
+	}
+
+	pub fn make_resource_unique(&mut self, id: usize) {
+		
+	}
+
+	// TODO: Reuse purged IDs like node counter does
+	fn get_next_resource_id(&mut self) -> usize {
+		self.resource_counter += 1;
+		self.resource_counter - 1
 	}
 }
 

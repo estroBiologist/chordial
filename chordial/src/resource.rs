@@ -31,23 +31,22 @@ pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 	
 	fn resource_kind_id(&self) -> &'static str;
 
-	fn make_unique(&mut self);
-
 	fn is_empty(&self) -> bool;
 
 }
 
 
 #[derive(Clone)]
-struct ResourceData<T: Resource> {
-	data: Arc<RwLock<T>>,
-	path: Arc<RwLock<Option<PathBuf>>>,
+pub struct ResourceData<T: Resource> {
+	pub data: T,
+	pub path: Option<PathBuf>,
+	pub id: usize,
 }
 
 
 #[derive(Clone)]
 pub struct ResourceHandle<T: Resource> {
-	inner: Option<ResourceData<T>>,
+	inner: Option<Arc<RwLock<ResourceData<T>>>>,
 }
 
 
@@ -55,12 +54,13 @@ impl<T: Resource> ResourceHandle<T> {
 
 	// Non-empty ResourceHandles can only be given out by the engine,
 	// use Engine::add_resource() or Engine::create_resource() instead
-	pub(crate) fn new(data: Arc<RwLock<T>>, path: Arc<RwLock<Option<PathBuf>>>) -> Self {
+	pub(crate) fn new(data: T, path: Option<PathBuf>, id: usize) -> Self {
 		ResourceHandle {
-			inner: Some(ResourceData {
-				data,
-				path
-				}
+			inner: Some(Arc::new(RwLock::new(ResourceData {
+					data,
+					path,
+					id
+				}))
 			)
 		}
 	}
@@ -75,24 +75,16 @@ impl<T: Resource> ResourceHandle<T> {
 		self.inner.is_none()
 	}
 
-	pub fn data(&self) -> Option<&Arc<RwLock<T>>> {
-		if let Some(inner) = &self.inner {
-			Some(&inner.data)
-		} else {
-			None
-		}
+	pub fn read(&self) -> RwLockReadGuard<ResourceData<T>> {
+		self.inner.as_ref().unwrap().read().unwrap()
 	}
 
-	pub fn read(&self) -> RwLockReadGuard<T> {
-		self.data().unwrap().read().unwrap()
-	}
-
-	pub fn write(&self) -> RwLockWriteGuard<T> {
-		self.inner.as_ref().unwrap().data.write().unwrap()
+	pub fn write(&self) -> RwLockWriteGuard<ResourceData<T>> {
+		self.inner.as_ref().unwrap().write().unwrap()
 	}
 
 	pub fn path(&self) -> Option<PathBuf> {
-		if let Some(path) = &*self.inner.as_ref().unwrap().path.read().unwrap() {
+		if let Some(path) = &self.inner.as_ref().unwrap().read().unwrap().path {
 			Some(path.clone())
 		} else {
 			None
@@ -104,9 +96,8 @@ impl<T: Resource> ResourceHandle<T> {
 	}
 
 	pub fn detach_from_external(&self) {
-		*self.inner.as_ref().unwrap().path.write().unwrap() = None;
+		self.inner.as_ref().unwrap().write().unwrap().path = None;
 	}
-
 }
 
 
@@ -116,24 +107,15 @@ impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]) {
-		self.write().apply_action(action, args)
+		self.write().data.apply_action(action, args)
 	}
 
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> {
-		self.read().get(keys)
+		self.read().data.get(keys)
 	}
 	
 	fn resource_kind_id(&self) -> &'static str {
-		self.read().resource_kind_id()
-	}
-
-	fn make_unique(&mut self) {
-		let res = Arc::new(RwLock::new(self.read().clone()));
-		
-		self.inner = Some(ResourceData {
-			data: res,
-			path: Arc::default()
-		});
+		self.read().data.resource_kind_id()
 	}
 
 	fn is_empty(&self) -> bool {

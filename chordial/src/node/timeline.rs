@@ -62,8 +62,8 @@ impl Node for MidiClip {
 					Step(0)
 				};
 				
-				for channel in 0..data.channels.len() {
-					for note in &data.channels[channel] {
+				for channel in 0..data.data.channels.len() {
+					for note in &data.data.channels[channel] {
 						let note_pos = note.pos + self.position;
 						let note_end = note_pos + note.len;
 
