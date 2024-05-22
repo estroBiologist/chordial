@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
+use std::{any::Any, path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
 
 use crate::{engine::Frame, param::ParamValue};
 
@@ -22,20 +22,6 @@ pub trait Resource: Clone + Send + Sync {
 
 }
 
-
-pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
-
-	fn apply_action(&self, action: &'static str, args: &[ParamValue]);
-
-	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
-	
-	fn resource_kind_id(&self) -> &'static str;
-
-	fn is_empty(&self) -> bool;
-
-	fn id(&self) -> usize;
-
-}
 
 
 #[derive(Clone)]
@@ -63,7 +49,7 @@ impl<T: Resource> Clone for ResourceHandle<T> {
 }
 
 
-impl<T: Resource> ResourceHandle<T> {
+impl<T: Resource + 'static> ResourceHandle<T> {
 
 	// Non-empty ResourceHandles can only be given out by the engine,
 	// use Engine::add_resource() or Engine::create_resource() instead
@@ -110,13 +96,36 @@ impl<T: Resource> ResourceHandle<T> {
 	pub fn inner(&self) -> MutexGuard<ResourceHandleInner<T>> {
 		self.inner.lock().unwrap()
 	}
+
+	pub fn link_dyn(&self, resource: &dyn Any) {
+		let resource = resource.downcast_ref::<ResourceHandle<T>>();
+
+		*self.inner() = resource.unwrap().inner.lock().unwrap().clone();
+	}
 }
 
 
 impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 
 
-impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
+pub trait ResourceHandleDyn: Any + Send + private::ResourceHandleSealed {
+
+	fn apply_action(&self, action: &'static str, args: &[ParamValue]);
+
+	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
+	
+	fn resource_kind_id(&self) -> &'static str;
+
+	fn is_empty(&self) -> bool;
+
+	fn id(&self) -> usize;
+
+	fn link_dyn(&self, resource: &dyn Any);
+
+	fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: Resource + 'static> ResourceHandleDyn for ResourceHandle<T> {
 
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]) {
 		self.inner().as_ref().unwrap().write().unwrap().data.apply_action(action, args)
@@ -136,6 +145,14 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 
 	fn is_empty(&self) -> bool {
 		self.inner().is_none()
+	}
+
+	fn link_dyn(&self, resource: &dyn Any) {
+		self.link_dyn(resource);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 

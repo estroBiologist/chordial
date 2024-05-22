@@ -487,6 +487,17 @@ impl Engine {
 		
 	}
 
+	pub fn link_resource(&self, node: usize, resource: &'static str, id: usize) {
+		let linked = &**self.resources.get(&id).unwrap();
+
+		self
+			.get_node(node)
+			.unwrap()
+			.node
+			.get_resource(resource)
+			.link_dyn(linked.as_any());
+	}
+
 	// TODO: Reuse purged IDs like node counter does
 	fn get_next_resource_id(&mut self) -> usize {
 		self.resource_counter += 1;
