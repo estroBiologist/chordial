@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}};
+use std::{path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
 
 use crate::{engine::Frame, param::ParamValue};
 
@@ -46,10 +46,20 @@ pub struct ResourceData<T: Resource> {
 }
 
 
-#[derive(Clone)]
+type ResourceHandleInner<T> = Option<Arc<RwLock<ResourceData<T>>>>;
+
 pub struct ResourceHandle<T: Resource> {
-	inner: Option<Arc<RwLock<ResourceData<T>>>>,
+	inner: Mutex<ResourceHandleInner<T>>,
 	kind: &'static str,
+}
+
+impl<T: Resource> Clone for ResourceHandle<T> {
+	fn clone(&self) -> Self {
+		ResourceHandle {
+			inner: Mutex::new(self.inner.lock().unwrap().clone()),
+			kind: self.kind,
+		}
+	}
 }
 
 
@@ -60,11 +70,11 @@ impl<T: Resource> ResourceHandle<T> {
 	pub(crate) fn new(data: T, path: Option<PathBuf>, id: usize) -> Self {
 		let kind = data.resource_kind_id();
 		ResourceHandle {
-			inner: Some(Arc::new(RwLock::new(ResourceData {
+			inner: Mutex::new(Some(Arc::new(RwLock::new(ResourceData {
 					data,
 					path,
 					id
-				}))
+				})))
 			),
 			kind
 		}
@@ -72,25 +82,17 @@ impl<T: Resource> ResourceHandle<T> {
 
 	pub fn nil(kind: &'static str) -> Self {
 		ResourceHandle {
-			inner: None,
+			inner: Mutex::default(),
 			kind,
 		}
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.inner.is_none()
-	}
-
-	pub fn read(&self) -> RwLockReadGuard<ResourceData<T>> {
-		self.inner.as_ref().unwrap().read().unwrap()
-	}
-
-	pub fn write(&self) -> RwLockWriteGuard<ResourceData<T>> {
-		self.inner.as_ref().unwrap().write().unwrap()
+		self.inner().is_none()
 	}
 
 	pub fn path(&self) -> Option<PathBuf> {
-		if let Some(path) = &self.inner.as_ref().unwrap().read().unwrap().path {
+		if let Some(path) = &self.inner().as_ref().unwrap().read().unwrap().path {
 			Some(path.clone())
 		} else {
 			None
@@ -102,7 +104,11 @@ impl<T: Resource> ResourceHandle<T> {
 	}
 
 	pub fn detach_from_external(&self) {
-		self.inner.as_ref().unwrap().write().unwrap().path = None;
+		self.inner().as_ref().unwrap().write().unwrap().path = None;
+	}
+
+	pub fn inner(&self) -> MutexGuard<ResourceHandleInner<T>> {
+		self.inner.lock().unwrap()
 	}
 }
 
@@ -113,11 +119,11 @@ impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 
 	fn apply_action(&self, action: &'static str, args: &[ParamValue]) {
-		self.write().data.apply_action(action, args)
+		self.inner().as_ref().unwrap().write().unwrap().data.apply_action(action, args)
 	}
 
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> {
-		self.read().data.get(keys)
+		self.inner().as_ref().unwrap().read().unwrap().data.get(keys)
 	}
 	
 	fn resource_kind_id(&self) -> &'static str {
@@ -125,11 +131,11 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 	}
 
 	fn id(&self) -> usize {
-		self.read().id
+		self.inner().as_ref().unwrap().read().unwrap().id
 	}
 
 	fn is_empty(&self) -> bool {
-		self.inner.is_none()
+		self.inner().is_none()
 	}
 }
 

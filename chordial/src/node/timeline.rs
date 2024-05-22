@@ -48,7 +48,8 @@ impl Node for MidiClip {
 	) {
 		
 		let buffer = buffer.midi_mut().unwrap();
-		let data = self.data.read();
+		let data = self.data.inner();
+		let data = data.as_ref().unwrap().read().unwrap();
 
 		buffer
 			.iter_mut()
