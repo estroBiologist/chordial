@@ -396,6 +396,16 @@ impl Engine {
 
 				writeln!(result, "    buffer capacity: {}", buf.capacity()).unwrap();
 			}
+
+			for name in node.1.node.get_resource_names() {
+				let resource = node.1.node.get_resource(name);
+				
+				if resource.is_empty() {
+					writeln!(result, "  resource {name}: (unlinked)").unwrap();
+				} else {
+					writeln!(result, "  resource {name}: {}", resource.id()).unwrap();
+				}
+			}
 		}
 
 		result
