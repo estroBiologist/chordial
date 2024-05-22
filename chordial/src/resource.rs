@@ -33,6 +33,8 @@ pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 
 	fn is_empty(&self) -> bool;
 
+	fn id(&self) -> usize;
+
 }
 
 
@@ -120,6 +122,10 @@ impl<T: Resource> ResourceHandleDyn for ResourceHandle<T> {
 	
 	fn resource_kind_id(&self) -> &'static str {
 		self.kind
+	}
+
+	fn id(&self) -> usize {
+		self.read().id
 	}
 
 	fn is_empty(&self) -> bool {
