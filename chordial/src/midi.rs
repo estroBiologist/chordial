@@ -166,10 +166,20 @@ impl MonoVoiceTracker {
 				continue
 			};
 
+			note.progress += samples;
+		}
+
+		self.purge_dead_voices();
+	}
+
+	pub fn purge_dead_voices(&mut self) {
+		for channel in self.channels.iter_mut() {
+			let Some(note) = channel else {
+				continue
+			};
+
 			if note.released && note.progress - note.release_point >= self.release_length {
 				*channel = None;
-			} else {
-				note.progress += samples;
 			}
 		}
 	}
@@ -234,6 +244,12 @@ impl PolyVoiceTracker {
 				note.progress += samples;
 			}
 
+		}
+	}
+
+	pub fn purge_dead_voices(&mut self) {
+		for channel in self.channel_voices.iter_mut() {
+			channel.retain(|_, v| !v.released || v.progress - v.release_point < self.release_length);
 		}
 	}
 

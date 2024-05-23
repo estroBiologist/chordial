@@ -1,4 +1,4 @@
-use std::{f64::consts::TAU, sync::Mutex};
+use std::{f64::consts::PI, sync::Mutex};
 
 use crate::{engine::{Config, Engine}, midi::{MonoVoiceTracker, PolyVoiceTracker}, param::{ParamKind, ParamValue, Parameter}, util};
 
@@ -57,21 +57,23 @@ impl Node for Osc {
 			.for_each(|(i, (f, m))| {
 				tracker.apply_midi_chain(m, i as u32);
 
-				for channel in tracker.channels.iter() {
+				for channel in tracker.channels.iter_mut() {
 					let Some(note) = channel else {
 						continue
 					};
 					
-					let time = (note.progress as usize + i) as f64 / engine.config.sample_rate as f64;
+					let time = note.progress as f64 / engine.config.sample_rate as f64;
 					let rate = util::midi_to_freq(note.note);
 					let vel = note.velocity as f32 / 127.0;
 
-					f.0[0] += (TAU * time * rate).sin() as f32 * vel;
-					f.0[1] += (TAU * time * rate).sin() as f32 * vel;
+					f.0[0] += (PI * time * rate).sin() as f32 * vel;
+					f.0[1] += (PI * time * rate).sin() as f32 * vel;
+
+					note.progress += 1;
 				}
 			});
 		
-		tracker.advance(buffer.len() as u32);
+		tracker.purge_dead_voices();
 
 		*self.notes.lock().unwrap() = Some(tracker);
 	}
@@ -147,19 +149,21 @@ impl Node for PolyOsc {
 			.for_each(|(i, (f, m))| {
 				tracker.apply_midi_chain(m, i as u32);
 
-				for channel in tracker.channel_voices.iter() {
-					for note in channel.values() {
-						let time = (note.progress as usize + i) as f64 / engine.config.sample_rate as f64;
+				for channel in tracker.channel_voices.iter_mut() {
+					for (_, note) in channel.iter_mut() {
+						let time = note.progress as f64 / engine.config.sample_rate as f64;
 						let rate = util::midi_to_freq(note.note);
 						let vel = note.velocity as f32 / 127.0;
 
-						f.0[0] += (TAU * time * rate).sin() as f32 * vel;
-						f.0[1] += (TAU * time * rate).sin() as f32 * vel;
+						f.0[0] += (PI * time * rate).sin() as f32 * vel;
+						f.0[1] += (PI * time * rate).sin() as f32 * vel;
+						
+						note.progress += 1;
 					}
 				}
 			});
 		
-		tracker.advance(buffer.len() as u32);
+		tracker.purge_dead_voices();
 
 		*self.notes.lock().unwrap() = Some(tracker);
 	}
@@ -233,8 +237,8 @@ impl Node for Sine {
 			.enumerate()
 			.for_each(|(i, f)| {
 				let time = (self.pos + i) as f64 / engine.config.sample_rate as f64;
-				f.0[0] = (TAU * time * self.rate).sin() as f32;
-				f.0[1] = (TAU * time * self.rate).sin() as f32;
+				f.0[0] = (PI * time * self.rate).sin() as f32;
+				f.0[1] = (PI * time * self.rate).sin() as f32;
 			});
 	}
 

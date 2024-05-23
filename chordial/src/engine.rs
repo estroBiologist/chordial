@@ -416,14 +416,14 @@ impl Engine {
 		&mut self,
 		ctor: impl Fn(&mut Engine) -> T + Send + Sync + 'static,
 	) {
+		let kind = ctor(self).resource_kind_id();
+
 		let ctor: ResourceCtor = Arc::new(move |engine| {
 			let resource = ctor(engine);
 			let handle = engine.add_resource(resource);
 
 			Box::new(handle)
 		});
-
-		let kind = ctor(self).resource_kind_id();
 
 		self.resource_ctors.insert(kind, ctor);
 	}
