@@ -1,4 +1,4 @@
-use std::{f64::consts::PI, sync::Mutex};
+use std::{f64::consts::TAU, sync::Mutex};
 
 use crate::{engine::{Config, Engine}, midi::{MonoVoiceTracker, PolyVoiceTracker}, param::{ParamKind, ParamValue, Parameter}, util};
 
@@ -66,8 +66,8 @@ impl Node for Osc {
 					let rate = util::midi_to_freq(note.note);
 					let vel = note.velocity as f32 / 127.0;
 
-					f.0[0] += (PI * time * rate).sin() as f32 * vel;
-					f.0[1] += (PI * time * rate).sin() as f32 * vel;
+					f.0[0] += (TAU * time * rate).sin() as f32 * vel;
+					f.0[1] += (TAU * time * rate).sin() as f32 * vel;
 
 					note.progress += 1;
 				}
@@ -155,8 +155,8 @@ impl Node for PolyOsc {
 						let rate = util::midi_to_freq(note.note);
 						let vel = note.velocity as f32 / 127.0;
 
-						f.0[0] += (PI * time * rate).sin() as f32 * vel;
-						f.0[1] += (PI * time * rate).sin() as f32 * vel;
+						f.0[0] += (TAU * time * rate).sin() as f32 * vel;
+						f.0[1] += (TAU * time * rate).sin() as f32 * vel;
 						
 						note.progress += 1;
 					}
@@ -237,8 +237,8 @@ impl Node for Sine {
 			.enumerate()
 			.for_each(|(i, f)| {
 				let time = (self.pos + i) as f64 / engine.config.sample_rate as f64;
-				f.0[0] = (PI * time * self.rate).sin() as f32;
-				f.0[1] = (PI * time * self.rate).sin() as f32;
+				f.0[0] = (TAU * time * self.rate).sin() as f32;
+				f.0[1] = (TAU * time * self.rate).sin() as f32;
 			});
 	}
 
