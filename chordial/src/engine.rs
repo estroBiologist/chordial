@@ -464,6 +464,14 @@ impl Engine {
 				writeln!(f, "param {value}")?;
 			}
 
+			for res in node.node.get_resource_names() {
+				if node.node.get_resource(res).is_empty() {
+					writeln!(f, "r {res}")?;
+				} else {
+					writeln!(f, "r {res} {}", node.node.get_resource(res).id())?;
+				}
+			}
+
 			writeln!(f)?;
 		}
 
@@ -595,9 +603,21 @@ impl Engine {
 							
 						} else if line == "in" {
 							node.inputs.push((vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control))));
+						
 						} else if line.starts_with("param ") {
 							node.set_param(param_counter, ParamValue::parse(&line[6..]));
 							param_counter += 1;
+						
+						} else if line.starts_with("r ") {
+							let line = line[2..].trim();
+
+							if let Some(split) = line.find(' ') {
+								let (resource, id) = line.split_at(split);
+								let linked = self.get_resource_by_id(id.trim().parse().unwrap()).unwrap();
+
+								node.node.get_resource(resource).link_dyn(linked);
+							}
+
 						} else {
 							buf = line_raw.into_bytes();
 							break
