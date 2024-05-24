@@ -119,7 +119,7 @@ impl<T: Resource + 'static> ResourceHandle<T> {
 impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 
 
-pub trait ResourceHandleDyn: Any + Send + private::ResourceHandleSealed {
+pub trait ResourceHandleDyn: Send + private::ResourceHandleSealed {
 
 	fn resource_kind(&self) -> &'static str;
 

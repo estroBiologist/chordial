@@ -180,7 +180,7 @@ fn main() {
 	let mut engine = Engine::new(config.sample_rate.0);
 
 	engine.register_node("chordial.cli.midi-in", |_| Box::new(MidiIn::new()));
-	engine.load(&PathBuf::from("midi.chrp"));
+	engine.load(&PathBuf::from("savetest.chrp"));
 	engine.playing = true;
 
 	let engine = Arc::new(Mutex::new(engine));

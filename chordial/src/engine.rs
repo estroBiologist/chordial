@@ -615,7 +615,7 @@ impl Engine {
 								let (resource, id) = line.split_at(split);
 								let linked = self.get_resource_by_id(id.trim().parse().unwrap()).unwrap();
 
-								node.node.get_resource(resource).link_dyn(linked);
+								node.node.get_resource(resource).link_dyn(linked.as_any());
 							}
 
 						} else {
