@@ -473,6 +473,8 @@ impl Engine {
 	pub fn load(&mut self, path: &Path) {
 		self.nodes.clear();
 		self.node_counter = 0;
+		self.resources.clear();
+		self.resource_counter = 0;
 
 		let file = File::open(path).unwrap();
 		let mut reader = BufReader::new(file);
