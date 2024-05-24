@@ -502,16 +502,20 @@ impl Engine {
 
 			match t {
 				"res" => {
+					let line = line.trim();
 					let (id,      line) = line.split_at(line.find(" ").unwrap());
+					let line = line.trim();
 					let (kind,    line) = line.split_at(line.find(" ").unwrap());
+					let line = line.trim();
 					let (storage, line) = line.split_at(line.find(" ").unwrap());
+					let line = line.trim();
 					
 					let id = id.trim().parse::<usize>().unwrap();
 					let kind = kind.trim();
 					
 					match storage {
 						"internal" => {
-							let size = line[0..(line.len() - 1)].parse::<usize>().unwrap();
+							let size = line.parse::<usize>().unwrap();
 							let mut data = vec![0; size];
 
 							let mut resource = self.create_resource_with_id(kind, id);

@@ -423,7 +423,6 @@ impl Resource for MidiBlock {
 			i += 1;
 			
 			let channel_len = u64::from_ne_bytes(data[i..(i+8)].try_into().unwrap()) as usize;
-			let channel_len = channel_len / size_of::<MidiNoteDesc>();
 
 			i += 8;
 
