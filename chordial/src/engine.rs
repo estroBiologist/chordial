@@ -474,6 +474,7 @@ impl Engine {
 		self.nodes.clear();
 		self.node_counter = 0;
 		self.resources.clear();
+		self.resources_by_kind.clear();
 		self.resource_counter = 0;
 
 		let file = File::open(path).unwrap();
