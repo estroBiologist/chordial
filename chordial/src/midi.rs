@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use std::{collections::HashMap, mem::size_of};
 use smallvec::SmallVec;
 
 use crate::{node::TlUnit, param::ParamValue, resource::Resource};
@@ -289,7 +288,7 @@ pub struct MidiBlock {
 }
 
 impl Resource for MidiBlock {
-	fn resource_kind_id(&self) -> &'static str {
+	fn resource_kind(&self) -> &'static str {
 		"MidiBlock"
 	}
 
@@ -384,6 +383,73 @@ impl Resource for MidiBlock {
 			}
 
 			_ => None
+		}
+	}
+
+	fn save(&self) -> Vec<u8> {
+		let mut result = vec![];
+		
+		for i in 0..self.channels.len() {
+			if self.channels[i].is_empty() {
+				continue
+			}
+
+			let channel_len = self.channels[i].len() as u64;
+
+			result.push(i as u8);
+			result.extend_from_slice(&channel_len.to_ne_bytes());
+			result.reserve(channel_len as usize * size_of::<MidiNoteDesc>());
+
+			for note in &self.channels[i] {
+				result.extend_from_slice(&note.pos.0.to_ne_bytes());
+				result.extend_from_slice(&note.len.0.to_ne_bytes());
+				result.push(note.note);
+				result.push(note.vel);
+			}
+
+		}
+
+		result
+	}
+
+	fn load(&mut self, data: &[u8]) {
+		*self = Self::default();
+
+		let mut i = 0;
+
+		while i < data.len() {
+			let channel = data[i] as usize;
+			
+			i += 1;
+			
+			let channel_len = u64::from_ne_bytes(data[i..(i+8)].try_into().unwrap()) as usize;
+			let channel_len = channel_len / size_of::<MidiNoteDesc>();
+
+			i += 8;
+
+			self.channels[channel].reserve(channel_len);
+
+			for _ in 0..channel_len {
+				let pos = usize::from_ne_bytes(data[i..(i+8)].try_into().unwrap());
+				
+				i += 8;
+
+				let len = usize::from_ne_bytes(data[i..(i+8)].try_into().unwrap());
+				
+				i += 8;
+
+				let note = data[i];
+				let vel = data[i+1];
+
+				i += 2;
+
+				self.channels[channel].push(MidiNoteDesc {
+					pos: TlUnit(pos),
+					len: TlUnit(len),
+					note,
+					vel
+				});
+			}
 		}
 	}
 }

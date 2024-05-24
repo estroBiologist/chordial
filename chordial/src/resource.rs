@@ -1,4 +1,4 @@
-use std::{any::Any, path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
+use std::{any::Any, mem::size_of, path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
 
 use crate::{engine::Frame, param::ParamValue};
 
@@ -12,7 +12,7 @@ mod private {
 
 pub trait Resource: Clone + Send + Sync {
 
-	fn resource_kind_id(&self) -> &'static str;
+	fn resource_kind(&self) -> &'static str;
 
 	#[allow(unused_variables)]
 	fn apply_action(&mut self, action: &str, args: &[ParamValue]) { }
@@ -20,8 +20,19 @@ pub trait Resource: Clone + Send + Sync {
 	#[allow(unused_variables)]
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue> { None }
 
+	fn save(&self) -> Vec<u8>;
+
+	fn load(&mut self, data: &[u8]);
 }
 
+
+pub trait ResourceLoader {
+	fn resource_kind(&self) -> &'static str;
+
+	fn extensions(&self) -> &'static [&'static str];
+
+	fn load_resource(&self) -> Option<Box<dyn ResourceHandleDyn>>;
+}
 
 
 #[derive(Clone)]
@@ -54,7 +65,7 @@ impl<T: Resource + 'static> ResourceHandle<T> {
 	// Non-empty ResourceHandles can only be given out by the engine,
 	// use Engine::add_resource() or Engine::create_resource() instead
 	pub(crate) fn new(data: T, path: Option<PathBuf>, id: usize) -> Self {
-		let kind = data.resource_kind_id();
+		let kind = data.resource_kind();
 		ResourceHandle {
 			inner: Mutex::new(Some(Arc::new(RwLock::new(ResourceData {
 					data,
@@ -110,19 +121,24 @@ impl<T: Resource> ResourceHandleSealed for ResourceHandle<T> {}
 
 pub trait ResourceHandleDyn: Any + Send + private::ResourceHandleSealed {
 
-	fn apply_action(&self, action: &str, args: &[ParamValue]);
+	fn resource_kind(&self) -> &'static str;
 
+	fn apply_action(&self, action: &str, args: &[ParamValue]);
 	fn get(&self, keys: &[ParamValue]) -> Option<ParamValue>;
 	
-	fn resource_kind_id(&self) -> &'static str;
+	fn id(&self) -> usize;
 
 	fn is_empty(&self) -> bool;
 
-	fn id(&self) -> usize;
-
 	fn link_dyn(&self, resource: &dyn Any);
-
 	fn as_any(&self) -> &dyn Any;
+
+	fn save(&self) -> Vec<u8>;
+	fn load(&mut self, data: &[u8]);
+
+	fn is_external(&self) -> bool;
+	fn detach_from_external(&self);
+	fn path(&self) -> Option<PathBuf>;
 }
 
 impl<T: Resource + 'static> ResourceHandleDyn for ResourceHandle<T> {
@@ -135,7 +151,7 @@ impl<T: Resource + 'static> ResourceHandleDyn for ResourceHandle<T> {
 		self.inner().as_ref().unwrap().read().unwrap().data.get(keys)
 	}
 	
-	fn resource_kind_id(&self) -> &'static str {
+	fn resource_kind(&self) -> &'static str {
 		self.kind
 	}
 
@@ -154,6 +170,26 @@ impl<T: Resource + 'static> ResourceHandleDyn for ResourceHandle<T> {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
+
+	fn is_external(&self) -> bool {
+		self.is_external()
+	}
+
+	fn detach_from_external(&self) {
+		self.detach_from_external()
+	}
+
+	fn save(&self) -> Vec<u8> {
+		self.inner().as_ref().unwrap().read().unwrap().data.save()
+	}
+
+	fn load(&mut self, data: &[u8]) {
+		self.inner().as_ref().unwrap().write().unwrap().data.load(data)
+	}
+
+	fn path(&self) -> Option<PathBuf> {
+		self.path()
+	}
 }
 
 
@@ -164,7 +200,48 @@ pub struct AudioData {
 }
 
 impl Resource for AudioData {
-	fn resource_kind_id(&self) -> &'static str {
+	fn resource_kind(&self) -> &'static str {
 		"AudioData"
+	}
+
+	fn save(&self) -> Vec<u8> {
+		let size = self.data.len() * size_of::<Frame>() + 4;
+		let mut result = vec![];
+
+		result.reserve(size);
+		
+		result.extend_from_slice(&self.sample_rate.to_ne_bytes());
+
+		for Frame([l, r]) in self.data.iter() {
+			result.extend_from_slice(&l.to_ne_bytes());
+			result.extend_from_slice(&r.to_ne_bytes());
+		}
+
+		result
+	}
+
+	fn load(&mut self, data: &[u8]) {
+		self.sample_rate = u32::from_ne_bytes(data[0..4].try_into().unwrap());
+		
+		let frame_size = size_of::<Frame>();
+		let sample_size = size_of::<f32>();
+
+		let data = &data[4..];
+		let size = data.len() / frame_size;
+		
+		self.data.clear();
+		self.data.reserve(size);
+
+		for i in 0..size {
+			let offset = i * frame_size;
+
+			let l_slice = &data[offset..(offset + sample_size)];
+			let r_slice = &data[(offset + sample_size)..(offset + frame_size)];
+
+			self.data.push(Frame([
+				f32::from_ne_bytes(l_slice.try_into().unwrap()),
+				f32::from_ne_bytes(r_slice.try_into().unwrap())
+			]));
+		}
 	}
 } 

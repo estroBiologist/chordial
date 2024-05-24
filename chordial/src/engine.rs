@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
+use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, fs::File, io::{self, BufRead, BufReader, Read, Write as IoWrite}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
 
 use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TlUnit, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
 
@@ -48,7 +48,7 @@ impl Config {
 }
 
 pub type NodeCtor = Arc<dyn Fn(&mut Engine) -> Box<dyn Node> + Send + Sync>;
-pub type ResourceCtor = Arc<dyn Fn(&mut Engine) -> Box<dyn ResourceHandleDyn> + Send + Sync>;
+pub type ResourceCtor = Arc<dyn Fn(&mut Engine, usize) -> Box<dyn ResourceHandleDyn> + Send + Sync>;
 
 pub struct Engine {
 	pub config: Config,
@@ -120,106 +120,7 @@ impl Engine {
 		engine
 	}
 
-	pub fn load_from_file(&mut self, path: &Path) {
-		self.nodes.clear();
-		self.node_counter = 0;
-
-		let file = std::fs::read_to_string(path).unwrap();
-
-		// fucking windows
-		let file = file.replace("\r\n", "\n");
-
-		let mut lines = file.split("\n");
-		
-		let mut current = lines.next();
-
-		while let Some(line) = current {
-			// skip comment lines
-			if let Some(';') = line.chars().next() {
-				current = lines.next();
-				continue
-			}
-			// skip empty lines
-			if line.is_empty() {
-				current = lines.next();
-				continue
-			}
-
-			let (idx, name) = line.split_at(line.find(" ").unwrap());
-
-			let name = &name[1..];
-			let idx = idx.parse::<usize>().unwrap();
-
-			let Some(ctor) = self.node_ctors.get(name) else {
-				panic!("unknown node constructor `{name}`")
-			};
-
-			let node = ctor.clone()(self);
-
-			let (id, _) = self.node_ctors.get_key_value(name).unwrap();
-			let mut node = NodeInstance::new_dyn(node, id);
-			
-			node.inputs.clear();
-			current = lines.next();
-
-			let mut param_counter = 0;
-
-			// parse inputs and parameters
-			loop {
-				let Some(line) = current else {
-					break
-				};
-
-				// skip empty lines
-				if line.is_empty() {
-					current = lines.next();
-					continue
-				}
-
-				if line.starts_with("in ") {
-					let inputs = line[3..].split(" ").collect::<Vec<_>>();
-					let mut input_data = (vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control)));
-
-					for input_node in &inputs {
-						let input_node = input_node.split(".").collect::<Vec<_>>();
-						let [noderef, output] = input_node.as_slice() else {
-							panic!()
-						};
-					
-						input_data.0.push(OutputRef {
-							node: noderef.parse().unwrap(),
-							output: output.parse().unwrap(),
-						});
-					}
-
-					if input_data.0.len() > 2 {
-						input_data.1 = RwLock::new(
-							Buffer::from_bus_kind(node.node.get_inputs()[node.inputs.len()])
-						);
-					}
-
-					node.inputs.push(input_data);
-					
-				} else if line == "in" {
-					node.inputs.push((vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control))));
-				} else if line.starts_with("param ") {
-					node.set_param(param_counter, ParamValue::parse(&line[6..]));
-					param_counter += 1;
-				} else {
-					break
-				}
-
-				current = lines.next();
-			}
-
-			self.nodes.insert(idx, node);
-		}
-
-		while self.nodes.contains_key(&self.node_counter) {
-			self.node_counter += 1;
-		}
-	}
-
+	
 	pub fn render(&mut self, buffer: &mut [Frame]) {
 		let start = Instant::now();
 
@@ -350,6 +251,14 @@ impl Engine {
 		self.nodes.iter_mut()
 	}
 
+	pub fn resources(&self) -> impl Iterator<Item = (&usize, &Box<dyn ResourceHandleDyn>)> {
+		self.resources.iter()
+	}
+
+	pub fn resources_mut(&mut self) -> impl Iterator<Item = (&usize, &mut Box<dyn ResourceHandleDyn>)> {
+		self.resources.iter_mut()
+	}
+
 	pub fn poll_node_output<'access>(
 		&'access self,
 		output_ref: &OutputRef,
@@ -416,11 +325,13 @@ impl Engine {
 		&mut self,
 		ctor: impl Fn(&mut Engine) -> T + Send + Sync + 'static,
 	) {
-		let kind = ctor(self).resource_kind_id();
+		let kind = ctor(self).resource_kind();
 
-		let ctor: ResourceCtor = Arc::new(move |engine| {
+		assert!(!kind.contains(['\n', '\r', ' ', '\t']), "whitespace not allowed in resource_kind!");
+
+		let ctor: ResourceCtor = Arc::new(move |engine, id| {
 			let resource = ctor(engine);
-			let handle = engine.add_resource(resource);
+			let handle = engine.add_resource_with_id(resource, id);
 
 			Box::new(handle)
 		});
@@ -432,8 +343,15 @@ impl Engine {
 	where
 		T: Resource + 'static
 	{
-		let kind = resource.resource_kind_id();
 		let id = self.get_next_resource_id();
+		self.add_resource_with_id(resource, id)
+	}
+
+	pub fn add_resource_with_id<T>(&mut self, resource: T, id: usize) -> ResourceHandle<T>
+	where
+		T: Resource + 'static
+	{
+		let kind = resource.resource_kind();
 		let handle = ResourceHandle::new(resource, None, id);
 		
 		self.resources.insert(id, Box::new(handle.clone()));
@@ -446,10 +364,16 @@ impl Engine {
 
 		handle
 	}
-
+	
 	pub fn create_resource(&mut self, kind: &str) -> Box<dyn ResourceHandleDyn> {
+		let id = self.get_next_resource_id();
+
+		self.create_resource_with_id(kind, id)
+	}
+
+	pub fn create_resource_with_id(&mut self, kind: &str, id: usize) -> Box<dyn ResourceHandleDyn> {
 		let ctor = self.resource_ctors[kind].clone();
-		let resource = ctor(self);
+		let resource = ctor(self, id);
 		
 		resource
 	}
@@ -485,7 +409,7 @@ impl Engine {
 	}
 
 	pub fn make_resource_unique(&mut self, id: usize) {
-		
+		todo!()
 	}
 
 	pub fn link_resource(&self, node: usize, resource: &str, id: usize) {
@@ -504,6 +428,190 @@ impl Engine {
 		self.resource_counter += 1;
 		self.resource_counter - 1
 	}
+
+	pub fn save(&self, f: &mut File) -> io::Result<()> {
+		for (idx, resource) in self.resources() {
+			let kind = resource.resource_kind();
+
+			if resource.is_external() {
+				writeln!(f, "res {idx} {kind} external {:?}", resource.path().unwrap())?;
+			} else {
+				let data = resource.save();
+
+				writeln!(f, "res {idx} {kind} internal {}", data.len())?;
+
+				f.write_all(&data)?;
+				
+				write!(f, "\n\n")?;
+			}
+
+		}
+
+		for (idx, node) in self.nodes() {
+			write!(f, "node {idx} {}\n", node.id)?;
+			
+			for input in &node.inputs {
+				write!(f, "in")?;
+
+				for input_node in &input.0 {
+					write!(f, " {}.{}", input_node.node, input_node.output)?;
+				}
+
+				write!(f, "\n")?;
+			}
+
+			for (_, value) in node.get_params() {
+				writeln!(f, "param {value}")?;
+			}
+
+			writeln!(f)?;
+		}
+
+		Ok(())
+	}
+
+	pub fn load(&mut self, path: &Path) {
+		self.nodes.clear();
+		self.node_counter = 0;
+
+		let file = File::open(path).unwrap();
+		let mut reader = BufReader::new(file);
+		let mut buf = vec![];
+		
+		let mut last_read = reader.read_until(b'\n', &mut buf).unwrap();
+		 
+		while last_read != 0 {
+			let line = String::from_utf8(buf).unwrap();
+			let line = line.trim();
+			buf = vec![];
+			
+			// skip comment lines
+			if let Some(';') = line.chars().next() {
+				last_read = reader.read_until(b'\n', &mut buf).unwrap();
+				continue
+			}
+
+			// skip empty lines
+			if line.is_empty() {
+				last_read = reader.read_until(b'\n', &mut buf).unwrap();
+				continue
+			}
+
+			let (t, line) = line.split_at(line.find(' ').unwrap());
+			let line = &line[1..];
+
+			match t {
+				"res" => {
+					let (id,      line) = line.split_at(line.find(" ").unwrap());
+					let (kind,    line) = line.split_at(line.find(" ").unwrap());
+					let (storage, line) = line.split_at(line.find(" ").unwrap());
+					
+					let id = id.trim().parse::<usize>().unwrap();
+					let kind = kind.trim();
+					
+					match storage {
+						"internal" => {
+							let size = line[0..(line.len() - 1)].parse::<usize>().unwrap();
+							let mut data = vec![0; size];
+
+							let mut resource = self.create_resource_with_id(kind, id);
+
+							reader.read_exact(&mut data).unwrap();
+							resource.load(&data);
+						}
+
+						"external" => {
+							todo!()
+						}
+
+						other => panic!("invalid storage specifier: {other}")
+					}
+					
+				}
+
+				"node" => {
+					let (idx, name) = line.split_at(line.find(" ").unwrap());
+
+					let name = name.trim();
+					let idx = idx.parse::<usize>().unwrap();
+		
+					let Some(ctor) = self.node_ctors.get(name) else {
+						panic!("unknown node constructor `{name}`")
+					};
+		
+					let node = ctor.clone()(self);
+		
+					let (id, _) = self.node_ctors.get_key_value(name).unwrap();
+					let mut node = NodeInstance::new_dyn(node, id);
+					
+					node.inputs.clear();
+					
+					last_read = reader.read_until(b'\n', &mut buf).unwrap();
+		
+					let mut param_counter = 0;
+		
+					// parse inputs and parameters
+					while last_read != 0 {
+						let line_raw = String::from_utf8(buf).unwrap();
+						let line = line_raw.trim();
+						buf = vec![];
+						
+						// skip empty lines
+						if line.is_empty() {
+							last_read = reader.read_until(b'\n', &mut buf).unwrap();
+							continue
+						}
+		
+						if line.starts_with("in ") {
+							let inputs = line[3..].split(" ").collect::<Vec<_>>();
+							let mut input_data = (vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control)));
+		
+							for input_node in &inputs {
+								let input_node = input_node.split(".").collect::<Vec<_>>();
+								let [noderef, output] = input_node.as_slice() else {
+									panic!()
+								};
+							
+								input_data.0.push(OutputRef {
+									node: noderef.parse().unwrap(),
+									output: output.parse().unwrap(),
+								});
+							}
+		
+							if input_data.0.len() > 2 {
+								input_data.1 = RwLock::new(
+									Buffer::from_bus_kind(node.node.get_inputs()[node.inputs.len()])
+								);
+							}
+		
+							node.inputs.push(input_data);
+							
+						} else if line == "in" {
+							node.inputs.push((vec![], RwLock::new(Buffer::from_bus_kind(BusKind::Control))));
+						} else if line.starts_with("param ") {
+							node.set_param(param_counter, ParamValue::parse(&line[6..]));
+							param_counter += 1;
+						} else {
+							buf = line_raw.into_bytes();
+							break
+						}
+						
+						last_read = reader.read_until(b'\n', &mut buf).unwrap();
+					}
+		
+					self.nodes.insert(idx, node);
+				}
+
+				other => panic!("unrecognnized file element: {other}"),
+			}
+			
+		}
+
+		while self.nodes.contains_key(&self.node_counter) {
+			self.node_counter += 1;
+		}
+	}
+
 }
 
 impl Config {

@@ -5,6 +5,7 @@ use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{Par
 pub mod effect;
 pub mod io;
 pub mod osc;
+pub mod sampler;
 pub mod timeline;
 
 pub trait Node: Send {
@@ -62,7 +63,8 @@ pub trait Node: Send {
 		false
 	}
 
-	fn get_length(&self) -> TlUnit {
+	#[allow(unused_variables)]
+	fn get_length(&self, config: &Config) -> TlUnit {
 		panic!()
 	}
 
@@ -766,7 +768,7 @@ impl Node for Trigger {
 		true
 	}
 
-	fn get_length(&self) -> TlUnit {
+	fn get_length(&self, _config: &Config) -> TlUnit {
 		TlUnit(1)
 	}
 
