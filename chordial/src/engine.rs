@@ -267,6 +267,23 @@ impl Engine {
 		buffer_len: usize
 	) -> RwLockReadGuard<'access, Buffer> {
 		let input_node = self.get_node(output_ref.node).unwrap();
+
+		// Optimization: don't render Timeline Nodes outside their timeline span
+		// unless explicitly requested by the node
+		if input_node.is_timeline_node() && !input_node.node.process_outside_timeline_span() {
+			let tl_pos = self.config.frames_to_tl_units(self.position);
+			let buffer_len_tl = self.config.frames_to_tl_units(buffer_len);
+
+			let node_end = input_node.get_timeline_position().0
+				+ input_node.node.get_timeline_length(&self.config).0
+				- input_node.get_timeline_start_offset().0
+				- input_node.get_timeline_end_offset().0;
+			
+			if tl_pos + buffer_len_tl < input_node.get_timeline_position() || tl_pos > TlUnit(node_end) {
+				return input_node.outputs[output_ref.output].read().unwrap()
+			}
+			
+		}
 		
 		input_node.render(output_ref.output, buffer_len, self);
 

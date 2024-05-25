@@ -68,6 +68,10 @@ pub trait Node: Send {
 	fn get_timeline_length(&self, config: &Config) -> TlUnit {
 		TlUnit(1)
 	}
+
+	fn process_outside_timeline_span(&self) -> bool {
+		true
+	}
 }
 
 
