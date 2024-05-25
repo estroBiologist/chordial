@@ -282,7 +282,7 @@ impl Engine {
 
 		for node in &self.nodes {
 			writeln!(result, "node {}:", node.0).unwrap();
-			writeln!(result, "  id:\t{}", node.1.id).unwrap();
+			writeln!(result, "  id:\t{}", node.1.ctor).unwrap();
 			writeln!(result, "  name:\t{}", node.1.node.get_name()).unwrap();
 			
 			for i in 0..node.1.inputs.len() {
@@ -317,6 +317,10 @@ impl Engine {
 				} else {
 					writeln!(result, "  resource {name}: {}", resource.id()).unwrap();
 				}
+			}
+
+			for (meta, val) in node.1.metadata() {
+				writeln!(result, "  meta {meta}: {val}").unwrap();
 			}
 		}
 
@@ -427,8 +431,10 @@ impl Engine {
 
 	// TODO: Reuse purged IDs like node counter does
 	fn get_next_resource_id(&mut self) -> usize {
-		self.resource_counter += 1;
-		self.resource_counter - 1
+		while self.resources.contains_key(&self.resource_counter) {
+			self.resource_counter += 1;
+		}
+		self.resource_counter
 	}
 
 	pub fn save(&self, f: &mut File) -> io::Result<()> {
@@ -450,7 +456,7 @@ impl Engine {
 		}
 
 		for (idx, node) in self.nodes() {
-			write!(f, "node {idx} {}\n", node.id)?;
+			write!(f, "node {idx} {}\n", node.ctor)?;
 			
 			for input in &node.inputs {
 				write!(f, "in")?;
@@ -472,6 +478,10 @@ impl Engine {
 				} else {
 					writeln!(f, "r {res} {}", node.node.get_resource(res).id())?;
 				}
+			}
+
+			for (meta, val) in node.metadata() {
+				writeln!(f, "meta {meta} {val}")?;
 			}
 
 			writeln!(f)?;
@@ -620,6 +630,11 @@ impl Engine {
 								node.node.get_resource(resource).link_dyn(linked.as_any());
 							}
 
+						} else if line.starts_with("meta ") {
+							let line = line[5..].trim();
+							let (key, val) = line.split_at(line.find(" ").unwrap());
+
+							node.set_metadata(key.trim().to_string(), ParamValue::parse(val.trim()));
 						} else {
 							buf = line_raw.into_bytes();
 							break

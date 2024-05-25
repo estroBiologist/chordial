@@ -1,4 +1,4 @@
-use std::{fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
+use std::{collections::HashMap, fmt::{Debug, Display}, ops::Add, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock, RwLockReadGuard}};
 
 use crate::{engine::{Config, Engine, Frame}, midi::MidiMessageChain, param::{ParamKind, ParamValue, Parameter}, resource::ResourceHandleDyn, util::{inverse_lerp, lerp}};
 
@@ -234,17 +234,18 @@ pub struct NodeInstance {
 	pub inputs: Vec<(Vec<OutputRef>, RwLock<Buffer>)>,
 	pub outputs: Vec<RwLock<Buffer>>,
 	pub node: Box<dyn Node>,
-	pub id: &'static str,
+	pub ctor: &'static str,
+	metadata: HashMap<String, ParamValue>,
 	tl_transform: Option<TimelineTransform>,
 	params: Vec<(Parameter, ParamValue)>,
 }
 
 impl NodeInstance {
-	pub fn new(node: impl Node + 'static, id: &'static str) -> Self {
-		Self::new_dyn(Box::new(node), id)
+	pub fn new(node: impl Node + 'static, ctor: &'static str) -> Self {
+		Self::new_dyn(Box::new(node), ctor)
 	}
 
-	pub fn new_dyn(node: Box<dyn Node>, id: &'static str) -> Self {
+	pub fn new_dyn(node: Box<dyn Node>, ctor: &'static str) -> Self {
 		NodeInstance {
 			inputs: node
 						.get_inputs()
@@ -272,9 +273,24 @@ impl NodeInstance {
 					None
 				},
 			
+			metadata: HashMap::new(),
 			node,
-			id,
+			ctor,
 		}
+	}
+
+	pub fn get_metadata(&self, key: &str) -> Option<&ParamValue> {
+		self.metadata.get(key)
+	}
+
+	pub fn set_metadata(&mut self, key: String, value: ParamValue) {
+		assert!(key.contains([' ', '\t', '\r', '\n']), "whitespace not allowed in metadata key!");
+
+		self.metadata.insert(key, value);
+	}
+
+	pub fn metadata(&self) -> &HashMap<String, ParamValue> {
+		&self.metadata
 	}
 
 	pub fn get_params(&self) -> &[(Parameter, ParamValue)] {
