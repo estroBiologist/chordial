@@ -284,7 +284,7 @@ impl NodeInstance {
 	}
 
 	pub fn set_metadata(&mut self, key: String, value: ParamValue) {
-		assert!(key.contains([' ', '\t', '\r', '\n']), "whitespace not allowed in metadata key!");
+		assert!(!key.contains([' ', '\t', '\r', '\n']), "whitespace not allowed in metadata key!");
 
 		self.metadata.insert(key, value);
 	}
