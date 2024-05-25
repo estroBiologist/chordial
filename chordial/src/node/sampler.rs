@@ -78,19 +78,7 @@ impl Node for SampleNode {
 		true
 	}
 
-	fn set_position(&mut self, pos: TlUnit) {
-		self.position = pos
-	}
-
-	fn set_start_offset(&mut self, offset: TlUnit) {
-		self.start_offset = offset
-	}
-
-	fn set_end_offset(&mut self, offset: TlUnit) {
-		self.end_offset = offset
-	}
-
-	fn get_length(&self, config: &Config) -> TlUnit {
+	fn get_timeline_length(&self, config: &Config) -> TlUnit {
 		let Some(inner) = &*self.sample.inner() else {
 			return TlUnit(0)
 		};

@@ -56,31 +56,17 @@ pub trait Node: Send {
 	// Timeline functionality
 	//
 	// A node with timeline support may override these functions.
-	// To support timeline features, `is_timeline_node()` should return true,
-	// and the relevant functions should be overridden to handle timeline repositioning.
-	
+	// To support timeline features, `is_timeline_node()` must return true when called.
+	// `get_timeline_length()` should also be overridden to provide the node's base timeline length.
+	// Timeline data can then be accessed from the node's NodeInstance at render time.
+
 	fn is_timeline_node(&self) -> bool {
 		false
 	}
 
 	#[allow(unused_variables)]
-	fn get_length(&self, config: &Config) -> TlUnit {
-		panic!()
-	}
-
-	#[allow(unused_variables)]
-	fn set_position(&mut self, pos: TlUnit) {
-		panic!()
-	}
-
-	#[allow(unused_variables)]
-	fn set_start_offset(&mut self, offset: TlUnit) {
-		panic!()
-	}
-
-	#[allow(unused_variables)]
-	fn set_end_offset(&mut self, offset: TlUnit) {
-		panic!()
+	fn get_timeline_length(&self, config: &Config) -> TlUnit {
+		TlUnit(1)
 	}
 }
 
@@ -219,7 +205,7 @@ impl<T: Node> NodeUtil for T {
 	}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TlUnit(pub usize);
 
 impl Display for TlUnit {
@@ -236,12 +222,20 @@ impl Add for TlUnit {
 	}
 }
 
+#[derive(Default, Copy, Clone)]
+pub struct TimelineTransform {
+	pub position: TlUnit,
+	pub start_offset: TlUnit,
+	pub end_offset: TlUnit,
+}
+
 
 pub struct NodeInstance {
 	pub inputs: Vec<(Vec<OutputRef>, RwLock<Buffer>)>,
 	pub outputs: Vec<RwLock<Buffer>>,
 	pub node: Box<dyn Node>,
 	pub id: &'static str,
+	tl_transform: Option<TimelineTransform>,
 	params: Vec<(Parameter, ParamValue)>,
 }
 
@@ -270,6 +264,14 @@ impl NodeInstance {
 						.copied()
 						.map(|desc| (desc, ParamValue::from_desc(desc)))
 						.collect(),
+			
+			tl_transform:
+				if node.is_timeline_node() {
+					Some(TimelineTransform::default())
+				} else {
+					None
+				},
+			
 			node,
 			id,
 		}
@@ -310,6 +312,42 @@ impl NodeInstance {
 				Buffer::Midi(buf) => buf.clear()
 			}
 		}
+	}
+
+	pub fn is_timeline_node(&self) -> bool {
+		self.tl_transform.is_some()
+	}
+
+	pub fn get_timeline_transform(&self) -> Option<&TimelineTransform> {
+		self.tl_transform.as_ref()
+	}
+	
+	pub fn get_timeline_position(&self) -> TlUnit {
+		self.tl_transform.unwrap().position
+	}
+
+	pub fn get_timeline_start_offset(&self) -> TlUnit {
+		self.tl_transform.unwrap().start_offset
+	}
+
+	pub fn get_timeline_end_offset(&self) -> TlUnit {
+		self.tl_transform.unwrap().end_offset
+	}
+
+	pub fn set_timeline_transform(&mut self, tf: TimelineTransform) {
+		*self.tl_transform.as_mut().unwrap() = tf
+	}
+
+	pub fn set_timeline_position(&mut self, pos: TlUnit) {
+		self.tl_transform.as_mut().unwrap().position = pos
+	}
+
+	pub fn set_timeline_start_offset(&mut self, start_offset: TlUnit) {
+		self.tl_transform.as_mut().unwrap().start_offset = start_offset
+	}
+	
+	pub fn set_timeline_end_offset(&mut self, end_offset: TlUnit) {
+		self.tl_transform.as_mut().unwrap().end_offset = end_offset
 	}
 }
 
@@ -707,14 +745,12 @@ impl Node for Envelope {
 
 
 pub struct Trigger {
-	pub node_pos: TlUnit,
 	pub tl_pos: usize,
 }
 
 impl Trigger {
 	pub fn new() -> Self {
 		Trigger {
-			node_pos: TlUnit(0),
 			tl_pos: 0,
 		}
 	}
@@ -733,11 +769,11 @@ impl Node for Trigger {
 		&self,
 		_output: usize,
 		mut buffer: BufferAccess,
-		_instance: &NodeInstance,
+		instance: &NodeInstance,
 		engine: &Engine
 	) {
 		let buffer = buffer.control_mut().unwrap();
-		let node_pos_tl = engine.config.tl_units_to_frames(self.node_pos);
+		let node_pos_tl = engine.config.tl_units_to_frames(instance.get_timeline_position());
 		
 		if node_pos_tl >= self.tl_pos {
 			let relative = node_pos_tl - self.tl_pos;
@@ -766,20 +802,6 @@ impl Node for Trigger {
 
 	fn is_timeline_node(&self) -> bool {
 		true
-	}
-
-	fn get_length(&self, _config: &Config) -> TlUnit {
-		TlUnit(1)
-	}
-
-	fn set_position(&mut self, pos: TlUnit) {
-		self.node_pos = pos
-	}
-
-	fn set_start_offset(&mut self, _offset: TlUnit) {
-	}
-
-	fn set_end_offset(&mut self, _offset: TlUnit) {
 	}
 }
 

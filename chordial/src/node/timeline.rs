@@ -12,9 +12,6 @@ pub struct MidiClipNote {
 
 pub struct MidiClip {
 	pub data: ResourceHandle<MidiBlock>,
-	pub position: TlUnit,
-	pub start_offset: TlUnit,
-	pub end_offset: TlUnit,
 	pub playback_pos: usize,
 }
 
@@ -22,9 +19,6 @@ impl MidiClip {
 	pub fn new(data: ResourceHandle<MidiBlock>) -> Self {
 		MidiClip {
 			data,
-			position: TlUnit(0),
-			start_offset: TlUnit(0),
-			end_offset: TlUnit(0),
 			playback_pos: 0,
 		}
 	}
@@ -43,7 +37,7 @@ impl Node for MidiClip {
 		&self,
 		_output: usize,
 		mut buffer: BufferAccess,
-		_instance: &NodeInstance,
+		instance: &NodeInstance,
 		engine: &Engine
 	) {
 		
@@ -69,7 +63,7 @@ impl Node for MidiClip {
 				
 				for channel in 0..data.data.channels.len() {
 					for note in &data.data.channels[channel] {
-						let note_pos = note.pos + self.position;
+						let note_pos = note.pos + instance.get_timeline_position();
 						let note_end = note_pos + note.len;
 
 						if tl_pos >= note_pos && (sample_pos == 0 || prev_tl_pos < note_pos) {
@@ -110,16 +104,22 @@ impl Node for MidiClip {
 		true
 	}
 
-	fn set_position(&mut self, pos: TlUnit) {
-		self.position = pos;
-	}
+	fn get_timeline_length(&self, _config: &Config) -> TlUnit {
+		let Some(data) = &*self.data.inner() else {
+			return TlUnit(1)
+		};
+		
+		let channels = &data.read().unwrap().data.channels;
+		
+		let mut max = 0;
 
-	fn set_start_offset(&mut self, offset: TlUnit) {
-		self.start_offset = offset;
-	}
+		for channel in channels {
+			if let Some(channel_max) = channel.iter().max_by_key(|note| note.pos.0 + note.len.0) {
+				max = max.max(channel_max.pos.0 + channel_max.len.0);
+			}
+		}
 
-	fn set_end_offset(&mut self, offset: TlUnit) {
-		self.end_offset = offset;
+		TlUnit(max)
 	}
 
 	fn get_resource_names(&self) -> &'static [&'static str] {
