@@ -65,6 +65,7 @@ pub struct Engine {
 
 	position: usize,
 	
+	pub rendering_offline: bool,
 	pub enable_buffer_readback: bool,
 	pub buffer_readback: Vec<Frame>,
 
@@ -94,7 +95,8 @@ impl Engine {
 			resource_counter: 0,
 
 			position: 0,
-			
+
+			rendering_offline: false,
 			enable_buffer_readback: false,
 			buffer_readback: vec![],
 			dbg_buffer_size: 0u32,
