@@ -101,7 +101,9 @@ impl<T: Node> NodeUtil for T {
 		instance: &'buf NodeInstance,
 		engine: &'buf Engine
 	) -> Option<RwLockReadGuard<'buf, Buffer>> {
-		let refs = &instance.inputs[input];
+		let Some(refs) = instance.inputs.get(input) else {
+			return None
+		};
 
 		if refs.0.len() < 2 {
 			let [output_ref] = instance.inputs[input].0.as_slice() else {

@@ -3,4 +3,4 @@ pub mod midi;
 pub mod node;
 pub mod param;
 pub mod resource;
-mod util;
+pub mod util;

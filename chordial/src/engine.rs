@@ -1,13 +1,13 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, fs::File, io::{self, BufRead, BufReader, Read, Write as IoWrite}, ops::{Add, AddAssign}, path::Path, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
+use std::{collections::{BTreeMap, HashMap}, fmt::{Debug, Write}, fs::File, io::{self, BufRead, BufReader, Read, Write as IoWrite}, ops::{Add, AddAssign, Mul, Sub}, path::{Path, PathBuf}, sync::{Arc, RwLock, RwLockReadGuard}, time::Instant};
 
-use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TlUnit, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn}};
+use crate::{midi::MidiBlock, node::{effect::{Amplify, Gain}, io::{MidiSplit, Sink}, osc::{Osc, PolyOsc, Sine}, sampler::Sampler, timeline::MidiClip, Buffer, BufferAccess, BusKind, ControlValue, Envelope, Node, NodeInstance, OutputRef, TlUnit, Trigger}, param::ParamValue, resource::{Resource, ResourceHandle, ResourceHandleDyn, ResourceLoader, WavLoader}};
 
 
 pub const STEP_DIVISIONS: u32 = 24;
 pub const BEAT_DIVISIONS: u32 = 4;
 
 #[derive(Copy, Clone)]
-pub struct Frame(pub [f32; 2]);
+pub struct Frame(pub f32, pub f32);
 
 impl Debug for Frame {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -17,8 +17,8 @@ impl Debug for Frame {
 
 impl AddAssign for Frame {
 	fn add_assign(&mut self, rhs: Self) {
-		self.0[0] += rhs.0[0];
-		self.0[1] += rhs.0[1];
+		self.0 += rhs.0;
+		self.1 += rhs.1;
 	}
 }
 
@@ -26,12 +26,28 @@ impl Add for Frame {
 	type Output = Frame;
 
 	fn add(self, rhs: Self) -> Self::Output {
-		Frame([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1]])
+		Frame(self.0 + rhs.0, self.1 + rhs.1)
+	}
+}
+
+impl Sub for Frame {
+	type Output = Frame;
+
+	fn sub(self, rhs: Self) -> Self::Output {
+		Frame(self.0 - rhs.0, self.1 - rhs.1)
+	}
+}
+
+impl Mul<f32> for Frame {
+	type Output = Frame;
+
+	fn mul(self, rhs: f32) -> Self::Output {
+		Frame(self.0 * rhs, self.1 * rhs)
 	}
 }
 
 impl Frame {
-	pub const ZERO: Frame = Frame([0f32; 2]);
+	pub const ZERO: Frame = Frame(0f32, 0f32);
 }
 
 
@@ -49,6 +65,7 @@ impl Config {
 
 pub type NodeCtor = Arc<dyn Fn(&mut Engine) -> Box<dyn Node> + Send + Sync>;
 pub type ResourceCtor = Arc<dyn Fn(&mut Engine, usize) -> Box<dyn ResourceHandleDyn> + Send + Sync>;
+pub type ResourceLoadCtor = Arc<dyn Fn(&Path, &mut Engine, usize) -> Option<Box<dyn ResourceHandleDyn>> + Send + Sync>;
 
 pub struct Engine {
 	pub config: Config,
@@ -62,6 +79,8 @@ pub struct Engine {
 	resources: HashMap<usize, Box<dyn ResourceHandleDyn>>,
 	resource_ctors: HashMap<&'static str, ResourceCtor>,
 	resource_counter: usize,
+
+	resource_loaders: HashMap<&'static str, ResourceLoadCtor>,
 
 	position: usize,
 	
@@ -94,6 +113,8 @@ impl Engine {
 			resource_ctors: HashMap::new(),
 			resource_counter: 0,
 
+			resource_loaders: HashMap::new(),
+
 			position: 0,
 
 			rendering_offline: false,
@@ -105,6 +126,8 @@ impl Engine {
 		};
 
 		engine.register_resource(|_| MidiBlock::default());
+		
+		engine.register_resource_loader(WavLoader);
 
 		engine.register_node("chordial.amplify", |_| Box::new(Amplify));
 		engine.register_node("chordial.sink", |_| Box::new(Sink));
@@ -117,6 +140,7 @@ impl Engine {
 		engine.register_node("chordial.polyosc", |_| Box::new(PolyOsc::new()));
 		engine.register_node("chordial.midi_split", |_| Box::new(MidiSplit::new()));
 		engine.register_node("chordial.midi_clip", |_| Box::new(MidiClip::new(ResourceHandle::nil("MidiBlock"))));
+		engine.register_node("chordial.sampler", |_| Box::new(Sampler::new()));
 
 		engine.create_node("chordial.sink");
 		engine
@@ -343,6 +367,27 @@ impl Engine {
 
 		result
 	}
+
+	pub fn register_resource_loader(
+		&mut self,
+		loader: impl ResourceLoader + 'static
+	) {
+		let extensions = loader.extensions();
+
+		for ext in extensions {
+			let loader = loader.clone();
+
+			self.resource_loaders.insert(
+				ext,
+				Arc::new(move |path, engine, id| {
+					let resource = loader.load_resource(path)?;
+					let handle = engine.add_resource_with_id(resource, id);
+				
+					Some(Box::new(handle))
+				}
+			));
+		}
+	}
 	
 	pub fn register_resource<T: Resource + 'static>(
 		&mut self,
@@ -399,6 +444,19 @@ impl Engine {
 		let resource = ctor(self, id);
 		
 		resource
+	}
+
+	pub fn load_resource(&mut self, path: &Path) -> Option<Box<dyn ResourceHandleDyn>> {
+		let id = self.get_next_resource_id();
+
+		self.load_resource_with_id(path, id)
+	}
+
+	pub fn load_resource_with_id(&mut self, path: &Path, id: usize) -> Option<Box<dyn ResourceHandleDyn>> {
+		let ext = path.extension()?.to_str()?;
+		let loader = self.resource_loaders.get(ext)?.clone();
+
+		loader(path, self, id)
 	}
 
 	pub fn get_resources_by_kind(&self, kind: &str)
@@ -467,9 +525,10 @@ impl Engine {
 
 				f.write_all(&data)?;
 				
-				write!(f, "\n\n")?;
+				writeln!(f)?;
 			}
 
+			writeln!(f)?;
 		}
 
 		for (idx, node) in self.nodes() {
@@ -565,7 +624,7 @@ impl Engine {
 						}
 
 						"external" => {
-							todo!()
+							self.load_resource_with_id(&PathBuf::from(line), id);
 						}
 
 						other => panic!("invalid storage specifier: {other}")

@@ -34,7 +34,7 @@ impl Node for Source {
 			panic!()
 		};
 
-		buffer.fill(Frame([1.0f32, 0.0f32]));
+		buffer.fill(Frame(0.0f32, 0.0f32));
 	}
 
 	fn get_params(&self) -> &[Parameter] { 

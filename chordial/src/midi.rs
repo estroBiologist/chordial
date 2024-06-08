@@ -79,6 +79,7 @@ impl MidiStatusByte {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct MidiVoiceDesc {
 	pub note: u8,
+	pub channel: u8,
 	pub velocity: u8,
 	pub progress: u32,
 	pub release_point: u32,
@@ -86,13 +87,13 @@ pub struct MidiVoiceDesc {
 }
 
 pub struct MonoVoiceTracker {
-	pub channels: Box<[Option<MidiVoiceDesc>; 16]>,
+	pub voice: Option<MidiVoiceDesc>,
 	pub release_length: u32,
 	pub zero_crossing: bool,
 }
 
 pub struct PolyVoiceTracker {
-	pub channel_voices: Box<[HashMap<u8, MidiVoiceDesc>; 16]>,
+	pub voices: HashMap<(u8, u8), MidiVoiceDesc>,
     pub polyphony: u8,
 	pub release_length: u32,
 	pub zero_crossing: bool,
@@ -101,7 +102,7 @@ pub struct PolyVoiceTracker {
 impl MonoVoiceTracker {
 	pub fn new() -> Self {
 		MonoVoiceTracker {
-			channels: Box::new([None; 16]),
+			voice: None,
 			release_length: 0,
 			zero_crossing: true,
 		}
@@ -120,6 +121,7 @@ impl MonoVoiceTracker {
 		match status.code() {
 			MidiStatusCode::NoteOn => {
 				let desc = MidiVoiceDesc {
+					channel,
 					note: msg.data[1],
 					velocity: msg.data[2],
 					progress: 0,
@@ -128,7 +130,7 @@ impl MonoVoiceTracker {
 				};
 
 				if desc.velocity != 0 {
-					self.channels[channel as usize] = Some(desc);
+					self.voice = Some(desc);
 				} else {
 					self.release_voice(channel, msg.data[1], buffer_progress);
 				}
@@ -143,16 +145,16 @@ impl MonoVoiceTracker {
     }
 
 	pub fn release_voice(&mut self, channel: u8, note: u8, buffer_progress: u32) {
-		let Some(active) = &mut self.channels[channel as usize] else {
+		let Some(active) = &mut self.voice else {
 			return
 		};
 
-		if active.note != note {
+		if active.note != note || active.channel != channel {
 			return
 		}
 
 		if self.release_length == 0 {
-			self.channels[channel as usize] = None;
+			self.voice = None;
 		} else {
 			active.released = true;
 			active.release_point = active.progress + buffer_progress;
@@ -160,26 +162,21 @@ impl MonoVoiceTracker {
 	}
 
 	pub fn advance(&mut self, samples: u32) {
-		for channel in self.channels.iter_mut() {
-			let Some(note) = channel else {
-				continue
-			};
+		let Some(note) = &mut self.voice else {
+			return
+		};
 
-			note.progress += samples;
-		}
-
+		note.progress += samples;
 		self.purge_dead_voices();
 	}
 
 	pub fn purge_dead_voices(&mut self) {
-		for channel in self.channels.iter_mut() {
-			let Some(note) = channel else {
-				continue
-			};
+		let Some(note) = &mut self.voice else {
+			return
+		};
 
-			if note.released && note.progress - note.release_point >= self.release_length {
-				*channel = None;
-			}
+		if note.released && note.progress - note.release_point >= self.release_length {
+			self.voice = None;
 		}
 	}
 }
@@ -187,7 +184,7 @@ impl MonoVoiceTracker {
 impl PolyVoiceTracker {
 	pub fn new() -> Self {
 		PolyVoiceTracker {
-			channel_voices: Box::default(),
+			voices: HashMap::new(),
 			polyphony: 0,
 			release_length: 0,
 			zero_crossing: true,
@@ -205,11 +202,15 @@ impl PolyVoiceTracker {
 		let channel = status.channel();
 		let polyphony = self.polyphony as usize;
 
+		if self.voices.capacity() < polyphony {
+			self.voices.reserve(polyphony - self.voices.len());
+		}
+
 		match status.code() {
 			MidiStatusCode::NoteOn => {
-				let voices = &mut self.channel_voices[channel as usize];
 				let desc = MidiVoiceDesc {
 					note: msg.data[1],
+					channel,
 					velocity: msg.data[2],
 					progress: 0,
 					released: false,
@@ -217,8 +218,8 @@ impl PolyVoiceTracker {
 				};
 
 				if desc.velocity != 0 {
-					if voices.len() < polyphony || polyphony == 0 {
-						voices.insert(desc.note, desc);
+					if self.voices.len() < polyphony || polyphony == 0 {
+						self.voices.insert((desc.channel, desc.note), desc);
 					}
 				} else {
 					self.release_voice(channel, msg.data[1], buffer_progress);
@@ -236,29 +237,22 @@ impl PolyVoiceTracker {
     }
 
 	pub fn advance(&mut self, samples: u32) {
-		for channel in self.channel_voices.iter_mut() {
-			channel.retain(|_, v| !v.released || v.progress - v.release_point < self.release_length);
-			
-			for note in channel.values_mut() {
-				note.progress += samples;
-			}
-
+		for note in self.voices.values_mut() {
+			note.progress += samples;
 		}
+
+		self.purge_dead_voices()
 	}
 
 	pub fn purge_dead_voices(&mut self) {
-		for channel in self.channel_voices.iter_mut() {
-			channel.retain(|_, v| !v.released || v.progress - v.release_point < self.release_length);
-		}
+		self.voices.retain(|_, v| !v.released || v.progress - v.release_point < self.release_length);
 	}
 
 	pub fn release_voice(&mut self, channel: u8, note: u8, buffer_progress: u32) {
-		let voices = &mut self.channel_voices[channel as usize];
-
 		if self.release_length == 0 {
-			voices.remove(&note);
+			self.voices.remove(&(channel, note));
 		} else {
-			let Some(voice) = voices.get_mut(&note) else {
+			let Some(voice) = self.voices.get_mut(&(channel, note)) else {
 				return
 			};
 
@@ -268,9 +262,7 @@ impl PolyVoiceTracker {
 	}
 
 	pub fn kill_all_voices(&mut self) {
-		for channel in self.channel_voices.iter_mut() {
-			channel.clear();
-		}
+		self.voices.clear();
 	}
 }
 

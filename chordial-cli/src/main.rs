@@ -173,14 +173,14 @@ fn main() {
 
 	let config = StreamConfig {
 		channels: 2,
-		sample_rate: SampleRate(48000),
+		sample_rate: SampleRate(44100),
 		buffer_size: cpal::BufferSize::Fixed(128),
 	};
 
 	let mut engine = Engine::new(config.sample_rate.0);
 
 	engine.register_node("chordial.cli.midi-in", |_| Box::new(MidiIn::new()));
-	engine.load(&PathBuf::from("savetest.chrp"));
+	engine.load(&PathBuf::from("samplertest.chrp"));
 	engine.playing = true;
 
 	let engine = Arc::new(Mutex::new(engine));
@@ -192,19 +192,19 @@ fn main() {
 		&config,
 
 		move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-			buffer.resize(data.len() / 2, Frame([0f32; 2]));
+			buffer.resize(data.len() / 2, Frame::ZERO);
 			thread_engine.lock().unwrap().render(&mut buffer);
 			
 			let mut out_buffer = out_buffer_thread.write().unwrap();
 
 			for (i, frame) in buffer.iter().enumerate() {
-				data[i*2] = frame.0[0];
-				data[i*2+1] = frame.0[1];
+				data[i*2] = frame.0;
+				data[i*2+1] = frame.1;
 			}
 
 			out_buffer.extend_from_slice(data);
 
-			buffer.fill(Frame([0f32; 2]));
+			buffer.fill(Frame::ZERO);
 		},
 
 		move |_| {

@@ -1,10 +1,8 @@
 use std::sync::Mutex;
 
-use rubato::FftFixedOut;
+use crate::{engine::{Config, Engine}, midi::PolyVoiceTracker, resource::{AudioData, ResourceHandle, ResourceHandleDyn}, util};
 
-use crate::{engine::{Config, Engine}, midi::PolyVoiceTracker, resource::{AudioData, ResourceHandle}};
-
-use super::{BufferAccess, BusKind, Node, NodeInstance, TlUnit};
+use super::{BufferAccess, BusKind, Node, NodeUtil, NodeInstance, TlUnit};
 
 
 pub struct SampleNode {
@@ -91,12 +89,18 @@ impl Node for SampleNode {
 }
 
 
-
 pub struct Sampler {
-	voices: PolyVoiceTracker,
+	voices: Mutex<Option<PolyVoiceTracker>>,
 	sample: ResourceHandle<AudioData>,
-	resampler: Mutex<FftFixedOut<f32>>,
-	buffer: Mutex<Vec<f32>>,
+}
+
+impl Sampler {
+	pub fn new() -> Self {
+		Sampler {
+			voices: Mutex::new(Some(PolyVoiceTracker::new())),
+			sample: ResourceHandle::nil("AudioData")
+		}
+	}
 }
 
 impl Node for Sampler {
@@ -112,21 +116,64 @@ impl Node for Sampler {
 		"Sampler"
 	}
 
+	fn get_resource(&self, name: &str) -> &dyn ResourceHandleDyn {
+		match name {
+			"sample" => &self.sample,
+			
+			_ => panic!()
+		}
+	}
+
 	fn render(
 		&self,
 		_output: usize,
-		buffer: BufferAccess,
+		mut buffer: BufferAccess,
 		instance: &NodeInstance,
 		engine: &Engine
 	) {
-		let sample_buffer = self.buffer.lock().unwrap();
-		let resampler = self.resampler.lock().unwrap();
+		let Some(sample) = &*self.sample.inner() else {
+			return
+		};
 
-		//resampler.process_into_buffer(wave_in, wave_out, active_channels_mask)
-	}
+		let Some(midi) = self.poll_input(0, buffer.len(), instance, engine) else {
+			return
+		};
 
-	fn advance(&mut self, frames: usize, config: &Config) {
+		let Some(mut tracker) = self.voices.lock().unwrap().take() else {
+			return
+		};
+
+		let sample = sample.read().unwrap();
+		let sample = &sample.data;
+		let midi = midi.midi().unwrap();
+		let audio = buffer.audio_mut().unwrap();
 		
+		audio
+			.iter_mut()
+			.zip(midi)
+			.enumerate()
+			.for_each(|(i, (f, chain))| {
+				tracker.apply_midi_chain(chain, i as u32);
+
+				for note in tracker.voices.values_mut() {
+					let vel = note.velocity as f32 / 127.0;
+
+					let pitch_scale = util::note_offset_to_pitch_scale(
+						note.note as i32 - 72
+					);
+
+					*f += util::resample(
+						&sample.data,
+						sample.sample_rate as f32,
+						engine.config.sample_rate as f32 / pitch_scale as f32,
+						note.progress as usize,
+						util::ResampleMethod::Linear
+					) * vel;
+
+					note.progress += 1;
+				}
+			});
+		
+		*self.voices.lock().unwrap() = Some(tracker);
 	}
-	
 }

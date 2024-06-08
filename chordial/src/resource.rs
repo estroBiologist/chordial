@@ -1,4 +1,6 @@
-use std::{any::Any, mem::size_of, path::PathBuf, sync::{Arc, Mutex, MutexGuard, RwLock}};
+use std::{any::Any, fs::File, io::BufReader, mem::size_of, path::{Path, PathBuf}, sync::{Arc, Mutex, MutexGuard, RwLock}};
+
+use hound::SampleFormat;
 
 use crate::{engine::Frame, param::ParamValue};
 
@@ -26,12 +28,12 @@ pub trait Resource: Clone + Send + Sync {
 }
 
 
-pub trait ResourceLoader {
-	fn resource_kind(&self) -> &'static str;
-
+pub trait ResourceLoader: Clone + Send + Sync {
+	type Output: Resource;
+	
 	fn extensions(&self) -> &'static [&'static str];
 
-	fn load_resource(&self) -> Option<Box<dyn ResourceHandleDyn>>;
+	fn load_resource(&self, file: &Path) -> Option<Self::Output>;
 }
 
 
@@ -212,7 +214,7 @@ impl Resource for AudioData {
 		
 		result.extend_from_slice(&self.sample_rate.to_ne_bytes());
 
-		for Frame([l, r]) in self.data.iter() {
+		for Frame(l, r) in self.data.iter() {
 			result.extend_from_slice(&l.to_ne_bytes());
 			result.extend_from_slice(&r.to_ne_bytes());
 		}
@@ -238,10 +240,82 @@ impl Resource for AudioData {
 			let l_slice = &data[offset..(offset + sample_size)];
 			let r_slice = &data[(offset + sample_size)..(offset + frame_size)];
 
-			self.data.push(Frame([
+			self.data.push(Frame(
 				f32::from_ne_bytes(l_slice.try_into().unwrap()),
 				f32::from_ne_bytes(r_slice.try_into().unwrap())
-			]));
+			));
 		}
 	}
 } 
+
+#[derive(Clone)]
+pub struct WavLoader;
+
+impl ResourceLoader for WavLoader {
+	type Output = AudioData;
+
+	fn extensions(&self) -> &'static [&'static str] {
+		&["wav"]
+	}
+
+	fn load_resource(&self, p: &Path) -> Option<AudioData> {
+		let reader = hound::WavReader::new(BufReader::new(File::open(p).ok()?)).ok()?;
+		
+		let mut result = AudioData {
+			sample_rate: reader.spec().sample_rate,
+			data: vec![],
+		};
+
+		
+		match reader.spec().sample_format {
+			SampleFormat::Float => {
+				let mut iter = reader.into_samples();
+
+				result.data.reserve(iter.len());
+		
+				while let Some(l) = iter.next() {
+					let l = l.unwrap();
+					let r = iter.next()?.unwrap();
+					
+					result.data.push(Frame(l, r));
+				}
+			}
+
+			SampleFormat::Int => {
+				if reader.spec().bits_per_sample == 16 {
+					let mut iter = reader.into_samples::<i16>();
+
+					result.data.reserve(iter.len());
+	
+					while let Some(l) = iter.next() {
+						let l = l.unwrap();
+						let r = iter.next()?.unwrap();
+						
+						result.data.push(Frame(
+							(l as f64 / std::i16::MAX as f64) as f32,
+							(r as f64 / std::i16::MAX as f64) as f32,
+						));
+					}
+				} else {
+					let mut iter = reader.into_samples::<i32>();
+
+					result.data.reserve(iter.len());
+
+					while let Some(l) = iter.next() {
+						let l = l.unwrap();
+						let r = iter.next()?.unwrap();
+						
+						result.data.push(Frame(
+							(l as f64 / std::i32::MAX as f64) as f32,
+							(r as f64 / std::i32::MAX as f64) as f32,
+						));
+					}
+				}
+				
+			}
+		}
+		
+
+		Some(result)
+	}
+}

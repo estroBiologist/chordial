@@ -2,14 +2,14 @@
 ;	this is where the engine polls audio for output, and any node output that
 ;	doesn't feed into this (whether directly or indirectly) won't get polled.
 
-0 chordial.sink
+node 0 chordial.sink
 in 2.0
 
 ;	parameters are lightweight, unbuffered values that nodes can use for
 ;	configuration. all automatable values are represented with Control inputs,
 ;	which can get computationally expensive and unwieldy if used for every value.
 
-1 chordial.sine
+node 1 chordial.sine
 param f:880
 
 ;	multiple outputs can be routed to a single output (and vice versa). in this case,
@@ -18,7 +18,7 @@ param f:880
 ;	the x.y notation refers to `node.output`, so `in 1.0` means:
 ;	"output 0 of node 1 is connected to this input"
 
-2 chordial.amplify
+node 2 chordial.amplify
 in 1.0 4.0
 in 5.0
 
@@ -27,19 +27,19 @@ in 5.0
 ;	for this is a `usize`, but if you manage to make more total nodes than you have
 ;	memory locations on your CPU, the overflow crash is the least of your problems.
 
-3 chordial.trigger
+node 3 chordial.trigger
 
 ;	oh, by the way, comments like these are only allowed at the start of a line.
 ;	didn't wanna accidentally screw up any future string parameter parsing lol
 
-4 chordial.sine
+node 4 chordial.sine
 param f:554.37
 
 ;	node constructors (see Engine::new()) are quasi-namespaced: there's no real
 ;	enforcement of the `package.node` naming scheme (yet), but chordial-front
 ;	uses it for grouping the constructors in the Browser view, so better stick to it
 
-5 chordial.envelope
+node 5 chordial.envelope
 in 6.0
 in 7.0
 in 8.0
@@ -48,15 +48,15 @@ in 3.0
 
 ;	i wanna add default values for control inputs but this works for now lol
 
-6 chordial.control_value
+node 6 chordial.control_value
 param f:0
 
-7 chordial.control_value
+node 7 chordial.control_value
 param f:0
 
-8 chordial.control_value
+node 8 chordial.control_value
 param f:1
 
-9 chordial.control_value
+node 9 chordial.control_value
 param f:1
 

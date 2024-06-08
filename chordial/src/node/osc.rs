@@ -57,20 +57,18 @@ impl Node for Osc {
 			.for_each(|(i, (f, m))| {
 				tracker.apply_midi_chain(m, i as u32);
 
-				for channel in tracker.channels.iter_mut() {
-					let Some(note) = channel else {
-						continue
-					};
-					
-					let time = note.progress as f64 / engine.config.sample_rate as f64;
-					let rate = util::midi_to_freq(note.note);
-					let vel = note.velocity as f32 / 127.0;
+				let Some(note) = &mut tracker.voice else {
+					return
+				};
+				
+				let time = note.progress as f64 / engine.config.sample_rate as f64;
+				let rate = util::midi_to_freq(note.note);
+				let vel = note.velocity as f32 / 127.0;
 
-					f.0[0] += (TAU * time * rate).sin() as f32 * vel;
-					f.0[1] += (TAU * time * rate).sin() as f32 * vel;
+				f.0 += (TAU * time * rate).sin() as f32 * vel;
+				f.1 += (TAU * time * rate).sin() as f32 * vel;
 
-					note.progress += 1;
-				}
+				note.progress += 1;
 			});
 		
 		tracker.purge_dead_voices();
@@ -149,17 +147,15 @@ impl Node for PolyOsc {
 			.for_each(|(i, (f, m))| {
 				tracker.apply_midi_chain(m, i as u32);
 
-				for channel in tracker.channel_voices.iter_mut() {
-					for (_, note) in channel.iter_mut() {
-						let time = note.progress as f64 / engine.config.sample_rate as f64;
-						let rate = util::midi_to_freq(note.note);
-						let vel = note.velocity as f32 / 127.0;
+				for note in tracker.voices.values_mut() {
+					let time = note.progress as f64 / engine.config.sample_rate as f64;
+					let rate = util::midi_to_freq(note.note);
+					let vel = note.velocity as f32 / 127.0;
 
-						f.0[0] += (TAU * time * rate).sin() as f32 * vel;
-						f.0[1] += (TAU * time * rate).sin() as f32 * vel;
-						
-						note.progress += 1;
-					}
+					f.0 += (TAU * time * rate).sin() as f32 * vel;
+					f.1 += (TAU * time * rate).sin() as f32 * vel;
+					
+					note.progress += 1;
 				}
 			});
 		
@@ -237,8 +233,8 @@ impl Node for Sine {
 			.enumerate()
 			.for_each(|(i, f)| {
 				let time = (self.pos + i) as f64 / engine.config.sample_rate as f64;
-				f.0[0] = (TAU * time * self.rate).sin() as f32;
-				f.0[1] = (TAU * time * self.rate).sin() as f32;
+				f.0 = (TAU * time * self.rate).sin() as f32;
+				f.1 = (TAU * time * self.rate).sin() as f32;
 			});
 	}
 

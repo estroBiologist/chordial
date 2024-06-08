@@ -74,7 +74,7 @@ impl Effect for Gain {
 		
 		buffer
 			.iter_mut()
-			.for_each(|Frame([l, r])| {
+			.for_each(|Frame(l, r)| {
 				*l *= fac;
 				*r *= fac;
 			})
@@ -134,8 +134,8 @@ impl Node for Amplify {
 			.iter_mut()
 			.zip(amp.iter().copied())
 			.for_each(|(a, b)| {
-				a.0[0] *= b;
-				a.0[1] *= b;
+				a.0 *= b;
+				a.1 *= b;
 			})
 	}
 
